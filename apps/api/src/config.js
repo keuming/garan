@@ -25,7 +25,7 @@ const schema = z
     PIN_LOCK_MINUTES: z.coerce.number().int().positive().default(15),
     BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(14).default(10),
 
-    STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+    STORAGE_DRIVER: z.enum(['local', 'db', 's3']).default('local'),
     STORAGE_LOCAL_DIR: z.string().default('./storage'),
     S3_BUCKET: z.string().optional(),
     S3_REGION: z.string().default('auto'),
@@ -47,7 +47,7 @@ const schema = z
       ctx.addIssue({
         code: 'custom',
         path: ['STORAGE_DRIVER'],
-        message: 'Le stockage local est interdit en production (disque éphémère) : utilisez s3'
+        message: 'Le stockage local est interdit en production (disque éphémère) : utilisez db ou s3'
       });
     }
   });

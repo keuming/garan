@@ -1,13 +1,16 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { config } from '../config.js';
 import { notFound } from './errors.js';
+import { query } from '../db.js';
 
 /**
  * Stockage des pièces d'identité.
  * - local : disque (développement / tests uniquement)
+ * - db    : table id_documents de PostgreSQL (simple à démarrer, aucun service externe)
  * - s3    : tout service compatible S3 (Cloudflare R2, AWS S3, Backblaze B2…),
  *           chiffrement côté serveur, objets privés.
  */
@@ -74,4 +77,27 @@ class S3Storage {
   }
 }
 
-export const storage = config.STORAGE_DRIVER === 's3' ? new S3Storage() : new LocalStorage(config.STORAGE_LOCAL_DIR);
+class DbStorage {
+  async put(key, buffer, contentType) {
+    assertKey(key);
+    await query(
+      `INSERT INTO id_documents (key, content_type, size_bytes, data) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (key) DO NOTHING`,
+      [key, contentType, buffer.length, buffer]
+    );
+  }
+
+  async getStream(key) {
+    assertKey(key);
+    const { rows } = await query(`SELECT data FROM id_documents WHERE key = $1`, [key]);
+    if (!rows[0]) throw notFound('Document introuvable');
+    return Readable.from(rows[0].data);
+  }
+}
+
+const DRIVERS = {
+  s3: () => new S3Storage(),
+  db: () => new DbStorage(),
+  local: () => new LocalStorage(config.STORAGE_LOCAL_DIR)
+};
+export const storage = DRIVERS[config.STORAGE_DRIVER]();
