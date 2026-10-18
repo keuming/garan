@@ -1,0 +1,13 @@
+{
+  "name": "garan",
+  "private": true,
+  "description": "gaRAN — Registre digital des téléphones par IMEI (monorepo : API, back-office web, apps mobiles)",
+  "workspaces": ["apps/api", "apps/web"],
+  "scripts": {
+    "dev:api": "npm run dev -w @garan/api",
+    "dev:web": "npm run dev -w @garan/web",
+    "build:web": "npm run build -w @garan/web",
+    "migrate": "npm run migrate -w @garan/api",
+    "test": "npm test -w @garan/api"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
+  "build": {
+    "base": {
+      "env": { "EXPO_PUBLIC_API_URL": "https://garan-api.onrender.com", "EXPO_PUBLIC_WEB_URL": "https://garan.ci" }
+    },
+    "shop": {
+      "extends": "base",
+      "env": { "APP_VARIANT": "shop" },
+      "android": { "buildType": "app-bundle" },
+      "autoIncrement": true
+    },
+    "supervisor": {
+      "extends": "base",
+      "env": { "APP_VARIANT": "supervisor" },
+      "android": { "buildType": "app-bundle" },
+      "autoIncrement": true
+    },
+    "preview": {
+      "extends": "base",
+      "env": { "APP_VARIANT": "shop" },
+      "distribution": "internal",
+      "android": { "buildType": "apk" }
+    }
+  },
+  "submit": { "shop": {}, "supervisor": {} }
+}
