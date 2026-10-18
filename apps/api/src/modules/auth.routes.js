@@ -62,6 +62,7 @@ authRouter.post(
   authLimiter,
   validate({
     body: z.object({
+      type: z.enum(['merchant', 'super_merchant']).default('merchant'),
       country: zText(60),
       city: zText(80),
       district: zText(80),
@@ -80,19 +81,23 @@ authRouter.post(
     if (exists.rowCount) throw conflict('PHONE_TAKEN', 'Ce numéro est déjà utilisé comme identifiant');
 
     const pinHash = await hashSecret(b.pin);
+    const isSuper = b.type === 'super_merchant';
     const user = await withTransaction(async (c) => {
       const org = await c.query(
-        `INSERT INTO organizations (name, rccm, email, phone, country, city, district, status, subscription_expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'trial', now() + make_interval(days => $8))
+        `INSERT INTO organizations (type, name, rccm, email, phone, country, city, district, status, max_shops, subscription_expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'trial', $9, now() + make_interval(days => $10))
          RETURNING id`,
-        [b.shop_name, b.rccm, b.email, b.contact_phone, b.country, b.city, b.district, config.TRIAL_DAYS]
+        [b.type, b.shop_name, b.rccm, b.email, b.contact_phone, b.country, b.city, b.district, isSuper ? 5 : 1, config.TRIAL_DAYS]
       );
       const orgId = org.rows[0].id;
-      await c.query(
-        `INSERT INTO shops (organization_id, name, phone, email, rccm, country, city, district)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [orgId, b.shop_name, b.contact_phone, b.email, b.rccm, b.country, b.city, b.district]
-      );
+      // Un marchand simple a sa boutique ; un super marchand n'en a pas en propre (il a des sous-marchands).
+      if (!isSuper) {
+        await c.query(
+          `INSERT INTO shops (organization_id, name, phone, email, rccm, country, city, district)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [orgId, b.shop_name, b.contact_phone, b.email, b.rccm, b.country, b.city, b.district]
+        );
+      }
       const u = await c.query(
         `INSERT INTO users (organization_id, role, full_name, phone, pin_hash)
          VALUES ($1, 'owner', $2, $3, $4)

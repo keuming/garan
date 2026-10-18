@@ -32,7 +32,7 @@ export function Dashboard() {
       </div>
 
       <div className="kpis">
-        <Kpi label="Clients" value={num(d.organizations)} hint={`${num(d.organizations_active)} actif(s) · ${num(d.organizations_trial)} en essai`} to="/organisations" />
+        <Kpi label="Marchands" value={num(d.organizations)} hint={`${num(d.organizations_active)} actif(s) · ${num(d.organizations_trial)} en essai`} to="/organisations" />
         <Kpi label="Magasins actifs" value={num(d.shops)} />
         <Kpi label="Abonnements à échéance (7 j)" value={num(d.expiring_soon)} to="/organisations" />
         <Kpi label="Encaissements du mois" value={fcfa(d.revenue_month)} />

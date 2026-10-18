@@ -100,7 +100,31 @@ export function ImeiSearch() {
           </div>
 
           <div className="card">
-            <h2>Historique ({data.history.length})</h2>
+            <h2>Propriétaires successifs ({data.owners?.length ?? 0})</h2>
+            {data.owners?.length ? (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>#</th><th>Nom et prénoms</th><th>Téléphone</th><th>Pièce</th><th>Depuis</th><th>Origine</th><th /></tr></thead>
+                  <tbody>
+                    {data.owners.map((o, i) => (
+                      <tr key={i} style={o.current ? { background: 'var(--ok-bg)' } : undefined}>
+                        <td>{i + 1}</td>
+                        <td><strong>{o.name}</strong></td>
+                        <td className="mono">{o.phone}</td>
+                        <td className="small">{o.id_doc || '—'}</td>
+                        <td>{dateTime(o.at)}</td>
+                        <td className="small">{o.source}</td>
+                        <td>{o.current ? <span className="badge ok">Propriétaire actuel</span> : <span className="badge muted">Ancien</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <div className="empty">Aucun propriétaire enregistré</div>}
+          </div>
+
+          <div className="card">
+            <h2>Historique des opérations ({data.history.length})</h2>
             {data.history.length ? (
               <ul className="timeline">
                 {data.history.map((h) => (

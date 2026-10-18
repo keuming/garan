@@ -359,7 +359,7 @@ adminRouter.get(
       [req.v.params.imei]
     );
     const device = rows[0] ?? null;
-    const [history, reports, alerts] = await Promise.all([
+    const [history, reports, alerts, owners] = await Promise.all([
       device
         ? query(
             `SELECT t.id, t.receipt_number, t.type, t.condition, t.price, t.occurred_at, t.supplier_name,
@@ -381,10 +381,30 @@ adminRouter.get(
         `SELECT a.*, s.name AS shop_name FROM security_alerts a LEFT JOIN shops s ON s.id = a.shop_id
          WHERE a.imei = $1 ORDER BY a.created_at DESC`,
         [req.v.params.imei]
-      )
+      ),
+      // Chaîne de propriété : tous ceux qui ont détenu l'appareil (nom + téléphone), du plus ancien au plus récent
+      device
+        ? query(
+            `SELECT * FROM (
+               SELECT 'consumer' AS holder_kind, c.full_name AS name, c.phone AS phone, NULL::text AS id_doc,
+                      r.acquired_at AS at, (r.status = 'active') AS current,
+                      'Enregistrement usager' AS source, r.receipt_key, r.box_photo_key
+               FROM device_registrations r JOIN consumers c ON c.id = r.consumer_id
+               WHERE r.device_id = $1
+               UNION ALL
+               SELECT 'person', p.full_name, p.phone1, p.id_doc_type || ' ' || p.id_doc_number,
+                      t.occurred_at, (dv.owner_type = 'person' AND dv.owner_person_id = p.id),
+                      CASE t.type WHEN 'sale' THEN 'Achat en boutique' ELSE 'Revente à une boutique' END,
+                      NULL, NULL
+               FROM transactions t JOIN persons p ON p.id = t.person_id JOIN devices dv ON dv.id = t.device_id
+               WHERE t.device_id = $1 AND t.type IN ('sale', 'purchase')
+             ) chain ORDER BY at ASC`,
+            [device.id]
+          )
+        : { rows: [] }
     ]);
     await audit(req, 'admin.device_lookup', { entity: 'device', entityId: req.v.params.imei });
-    res.json({ imei: req.v.params.imei, device, history: history.rows, theft_reports: reports.rows, alerts: alerts.rows });
+    res.json({ imei: req.v.params.imei, device, owners: owners.rows, history: history.rows, theft_reports: reports.rows, alerts: alerts.rows });
   }
 );
 
@@ -392,18 +412,83 @@ adminRouter.get(
 adminRouter.get(
   '/documents',
   requireAdmin(...INVESTIGATORS),
-  validate({ query: z.object({ key: z.string().regex(/^id-docs\/[0-9a-f-]{36}\/\d{6}\/[0-9a-f-]{36}\.(jpg|png|webp)$/) }) }),
+  validate({ query: z.object({ key: z.string().regex(/^(id-docs|consumer-docs)\/[0-9a-f-]{36}\/\d{6}\/[0-9a-f-]{36}\.(jpg|png|webp|pdf)$/) }) }),
   async (req, res) => {
     const { key } = req.v.query;
     const stream = await storage.getStream(key);
     await audit(req, 'admin.document_viewed', { entity: 'document', entityId: key });
     const ext = path.extname(key).slice(1);
+    const types = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' };
     res.set({
-      'Content-Type': ext === 'jpg' ? 'image/jpeg' : `image/${ext}`,
+      'Content-Type': types[ext] ?? 'application/octet-stream',
       'Cache-Control': 'private, no-store',
       'Content-Disposition': 'inline'
     });
     stream.pipe(res);
+  }
+);
+
+/* ------------------------------ Usagers ------------------------------ */
+
+// Liste des usagers (propriétaires finaux inscrits via l'app grand public)
+adminRouter.get(
+  '/consumers',
+  requireAdmin(...INVESTIGATORS),
+  validate({ query: z.object({ q: z.string().trim().max(60).optional(), ...zPagination }) }),
+  async (req, res) => {
+    const { q, page, limit } = req.v.query;
+    const params = [];
+    const cond = ['true'];
+    if (q) {
+      params.push(`%${q.replace(/[%_\\]/g, '\\$&')}%`);
+      cond.push(`(c.full_name ILIKE $${params.length} OR c.phone ILIKE $${params.length} OR c.email ILIKE $${params.length})`);
+    }
+    const where = cond.join(' AND ');
+    const [items, total] = await Promise.all([
+      query(
+        `SELECT c.id, c.full_name, c.phone, c.email, c.status, c.last_login_at, c.created_at,
+                (SELECT count(*)::int FROM device_registrations r WHERE r.consumer_id = c.id AND r.status = 'active') AS active_devices,
+                (SELECT count(*)::int FROM device_registrations r WHERE r.consumer_id = c.id) AS total_devices
+         FROM consumers c WHERE ${where} ORDER BY c.created_at DESC ${paginate(page, limit)}`,
+        params
+      ),
+      query(`SELECT count(*)::int AS n FROM consumers c WHERE ${where}`, params)
+    ]);
+    res.json({ items: items.rows, total: total.rows[0].n, page, limit });
+  }
+);
+
+adminRouter.get(
+  '/consumers/:id',
+  requireAdmin(...INVESTIGATORS),
+  validate({ params: z.object({ id: zUuid }) }),
+  async (req, res) => {
+    const { id } = req.v.params;
+    const c = await query(`SELECT id, full_name, phone, email, status, last_login_at, created_at FROM consumers WHERE id = $1`, [id]);
+    if (!c.rows[0]) throw notFound('Usager introuvable');
+    const devices = await query(
+      `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
+              r.receipt_number, r.receipt_key, r.box_photo_key,
+              d.imei1, d.imei2, d.status AS device_status, b.name AS brand, COALESCE(m.name, d.model_label) AS model
+       FROM device_registrations r JOIN devices d ON d.id = r.device_id
+       LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+       WHERE r.consumer_id = $1 ORDER BY r.acquired_at DESC`,
+      [id]
+    );
+    res.json({ ...c.rows[0], devices: devices.rows });
+  }
+);
+
+adminRouter.patch(
+  '/consumers/:id',
+  requireAdmin(...STAFF),
+  validate({ params: z.object({ id: zUuid }), body: z.object({ status: z.enum(['active', 'disabled']) }) }),
+  async (req, res) => {
+    const { rows } = await query(`UPDATE consumers SET status = $2 WHERE id = $1 RETURNING id, status`, [req.v.params.id, req.v.body.status]);
+    if (!rows[0]) throw notFound('Usager introuvable');
+    if (req.v.body.status === 'disabled') await query(`UPDATE refresh_tokens SET revoked_at = now() WHERE subject_type = 'consumer' AND subject_id = $1 AND revoked_at IS NULL`, [req.v.params.id]);
+    await audit(req, 'admin.consumer_updated', { entity: 'consumer', entityId: req.v.params.id, meta: req.v.body });
+    res.json(rows[0]);
   }
 );
 

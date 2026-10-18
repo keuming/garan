@@ -14,6 +14,7 @@ import { orgRouter } from './modules/org.routes.js';
 import { publicRouter } from './modules/public.routes.js';
 import { adminRouter } from './modules/admin.routes.js';
 import { adminClientsRouter } from './modules/admin-clients.routes.js';
+import { consumerRouter } from './modules/consumer.routes.js';
 
 export function createApp() {
   const app = express();
@@ -48,6 +49,7 @@ export function createApp() {
   v1.use('/org', orgRouter);
   v1.use('/admin', adminClientsRouter);
   v1.use('/admin', adminRouter);
+  v1.use('/consumer', consumerRouter);
   v1.use('/', registryRouter); // /devices, /persons, /uploads, /transactions, /stats
   app.use('/api/v1', v1);
 
