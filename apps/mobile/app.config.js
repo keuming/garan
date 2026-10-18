@@ -5,6 +5,8 @@
  */
 const variant = process.env.APP_VARIANT === 'supervisor' ? 'supervisor' : 'shop';
 const isSupervisor = variant === 'supervisor';
+// APK de test sur réseau local : autorise http:// (interdit par défaut par Android)
+const allowCleartext = process.env.ALLOW_CLEARTEXT === 'true';
 
 export default {
   expo: {
@@ -32,14 +34,15 @@ export default {
       'expo-router',
       'expo-secure-store',
       ['expo-camera', { cameraPermission: 'La caméra sert à scanner l’IMEI et à photographier la pièce d’identité du client.' }],
-      ['expo-image-picker', { cameraPermission: 'La caméra sert à photographier la pièce d’identité du client.' }]
+      ['expo-image-picker', { cameraPermission: 'La caméra sert à photographier la pièce d’identité du client.' }],
+      ['expo-build-properties', { android: { usesCleartextTraffic: allowCleartext } }]
     ],
     experiments: { typedRoutes: false },
     extra: {
       variant,
       apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://garan-api.onrender.com',
       publicWebUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://garan.ci',
-      eas: { projectId: process.env.EAS_PROJECT_ID }
+      eas: { projectId: 'REMPLACER_PAR_PROJECT_ID' }
     }
   }
 };
