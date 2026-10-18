@@ -73,52 +73,79 @@ async function insertUser(client, { orgId, shopId, role, account }) {
 /* ===================================================================== */
 
 /**
- * Crée un compte client complet.
- * - merchant       : organisation + sa boutique + son compte (login téléphone + PIN)
- * - super_merchant : organisation + compte principal (superviseur) ; les sous-comptes CLIENT
- *                    s'ajoutent ensuite (ou dès la création via `clients`)
+ * Crée une organisation complète dans une transaction donnée.
+ * - super_merchant : organisation + compte principal (superviseur). Pas de boutique propre.
+ * - merchant       : organisation + sa boutique unique + son compte de connexion.
+ *                    Avec parentId, c'est un sous-marchand rattaché à un super marchand,
+ *                    mais qui garde son PROPRE abonnement.
  */
+async function createOrganization(c, b, { parentId = null } = {}) {
+  await assertPhoneFree(c, b.owner.phone);
+  const maxShops = b.type === 'merchant' ? 1 : (b.max_shops ?? 5);
+  const org = await c.query(
+    `INSERT INTO organizations (type, parent_id, name, rccm, email, phone, country, city, district, status, max_shops,
+                                subscription_expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+             COALESCE($12, now() + make_interval(days => $13)))
+     RETURNING *`,
+    [b.type, parentId, b.name, b.rccm, b.email, b.phone, b.country, b.city, b.district, b.status, maxShops,
+     b.subscription_expires_at ?? null, config.TRIAL_DAYS]
+  );
+  const o = org.rows[0];
+  let shopId = null;
+  if (b.type === 'merchant') {
+    const shop = await insertShop(c, o.id, { name: b.name, phone: b.phone, email: b.email, rccm: b.rccm, country: b.country, city: b.city, district: b.district });
+    shopId = shop.id;
+  }
+  const owner = await insertUser(c, { orgId: o.id, shopId: null, role: 'owner', account: b.owner });
+  return { organization: o, owner, shop_id: shopId };
+}
+
+const zOrgBody = z.object({
+  type: zOrgType,
+  name: zText(120),
+  rccm: zText(60),
+  email: zEmail,
+  phone: zPhone,
+  ...zLocation,
+  status: z.enum(['trial', 'active']).default('trial'),
+  max_shops: z.coerce.number().int().min(1).max(1000).optional(),
+  subscription_expires_at: z.coerce.date().optional().nullable(),
+  owner: zAccount
+});
+
+/** Crée un client autonome : super marchand, ou marchand simple. */
 adminClientsRouter.post(
   '/organizations',
   requireAdmin(...STAFF),
-  validate({
-    body: z.object({
-      type: zOrgType,
-      name: zText(120),
-      rccm: zText(60),
-      email: zEmail,
-      phone: zPhone,
-      ...zLocation,
-      status: z.enum(['trial', 'active']).default('trial'),
-      max_shops: z.coerce.number().int().min(1).max(1000).optional(),
-      subscription_expires_at: z.coerce.date().optional().nullable(),
-      owner: zAccount
-    })
-  }),
+  validate({ body: zOrgBody }),
   async (req, res) => {
-    const b = req.v.body;
-    const maxShops = b.type === 'merchant' ? 1 : (b.max_shops ?? 5);
+    const result = await withTransaction((c) => createOrganization(c, req.v.body));
+    await audit(req, 'admin.organization_created', { entity: 'organization', entityId: result.organization.id, meta: { type: req.v.body.type } });
+    res.status(201).json(result);
+  }
+);
+
+/**
+ * Crée un sous-marchand rattaché à un super marchand.
+ * C'est un marchand à part entière (sa boutique, son compte, son abonnement),
+ * simplement relié au super marchand pour la supervision.
+ */
+adminClientsRouter.post(
+  '/organizations/:id/sub-merchants',
+  requireAdmin(...STAFF),
+  validate({ params: z.object({ id: zUuid }), body: zOrgBody.omit({ type: true }) }),
+  async (req, res) => {
+    const { id } = req.v.params;
     const result = await withTransaction(async (c) => {
-      await assertPhoneFree(c, b.owner.phone);
-      const org = await c.query(
-        `INSERT INTO organizations (type, name, rccm, email, phone, country, city, district, status, max_shops,
-                                    subscription_expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 COALESCE($11, now() + make_interval(days => $12)))
-         RETURNING *`,
-        [b.type, b.name, b.rccm, b.email, b.phone, b.country, b.city, b.district, b.status, maxShops,
-         b.subscription_expires_at ?? null, config.TRIAL_DAYS]
-      );
-      const o = org.rows[0];
-      let shopId = null;
-      if (b.type === 'merchant') {
-        const shop = await insertShop(c, o.id, { name: b.name, phone: b.phone, email: b.email, rccm: b.rccm, country: b.country, city: b.city, district: b.district });
-        shopId = shop.id;
+      const { rows } = await c.query(`SELECT id, type FROM organizations WHERE id = $1 FOR UPDATE`, [id]);
+      if (!rows[0]) throw notFound('Super marchand introuvable');
+      if (rows[0].type !== 'super_merchant') {
+        throw badRequest('NOT_SUPER_MERCHANT', 'Seul un super marchand peut avoir des sous-marchands');
       }
-      const owner = await insertUser(c, { orgId: o.id, shopId: null, role: 'owner', account: b.owner });
-      return { organization: o, owner, shop_id: shopId };
+      return createOrganization(c, { ...req.v.body, type: 'merchant' }, { parentId: id });
     });
-    await audit(req, 'admin.organization_created', { entity: 'organization', entityId: result.organization.id, meta: { type: b.type } });
+    await audit(req, 'admin.sub_merchant_created', { entity: 'organization', entityId: result.organization.id, meta: { parent_id: id } });
     res.status(201).json(result);
   }
 );
@@ -150,12 +177,17 @@ adminClientsRouter.patch(
     const b = req.v.body;
     if (b.type === 'merchant' || (b.max_shops !== undefined)) {
       const { rows } = await query(
-        `SELECT o.type, (SELECT count(*)::int FROM shops s WHERE s.organization_id = o.id AND s.status = 'active') AS active_shops
+        `SELECT o.type,
+                (SELECT count(*)::int FROM shops s WHERE s.organization_id = o.id AND s.status = 'active') AS active_shops,
+                (SELECT count(*)::int FROM organizations c WHERE c.parent_id = o.id) AS children
          FROM organizations o WHERE o.id = $1`,
         [id]
       );
       if (!rows[0]) throw notFound('Organisation introuvable');
       const targetType = b.type ?? rows[0].type;
+      if (b.type === 'merchant' && rows[0].type === 'super_merchant' && rows[0].children > 0) {
+        throw conflict('HAS_CHILDREN', 'Ce super marchand a des sous-marchands : il ne peut pas redevenir un marchand simple.');
+      }
       const targetMax = targetType === 'merchant' ? 1 : (b.max_shops ?? undefined);
       if (targetMax !== undefined && rows[0].active_shops > targetMax) {
         throw conflict('TOO_MANY_SHOPS', `Ce client a ${rows[0].active_shops} boutiques actives : désactivez-en avant de réduire la limite`);
@@ -198,11 +230,15 @@ adminClientsRouter.delete(
            (SELECT count(*)::int FROM subscription_payments WHERE organization_id = $1) AS pay,
            (SELECT count(*)::int FROM security_alerts a JOIN shops s ON s.id = a.shop_id WHERE s.organization_id = $1) AS alerts,
            (SELECT count(*)::int FROM devices d JOIN shops s ON s.id = d.owner_shop_id WHERE s.organization_id = $1) AS stock,
+           (SELECT count(*)::int FROM organizations c WHERE c.parent_id = $1) AS children,
            EXISTS (SELECT 1 FROM organizations WHERE id = $1) AS exists`,
         [id]
       );
       const r = rows[0];
       if (!r.exists) throw notFound('Organisation introuvable');
+      if (r.children) {
+        throw conflict('HAS_CHILDREN', 'Ce super marchand a encore des sous-marchands : détachez-les ou supprimez-les d’abord.');
+      }
       if (r.tx || r.pay || r.alerts || r.stock) {
         throw conflict(
           'HAS_HISTORY',
@@ -224,43 +260,8 @@ adminClientsRouter.delete(
 );
 
 /* ===================================================================== */
-/* Sous-comptes CLIENT : une boutique + son compte de connexion           */
+/* Boutiques et comptes de connexion                                      */
 /* ===================================================================== */
-
-adminClientsRouter.post(
-  '/organizations/:id/clients',
-  requireAdmin(...STAFF),
-  validate({ params: z.object({ id: zUuid }), body: z.object({ shop: zShopFields, account: zAccount }) }),
-  async (req, res) => {
-    const { id } = req.v.params;
-    const { shop, account } = req.v.body;
-    const out = await withTransaction(async (c) => {
-      const { rows } = await c.query(
-        `SELECT o.id, o.type, o.max_shops,
-                (SELECT count(*)::int FROM shops s WHERE s.organization_id = o.id AND s.status = 'active') AS active_shops
-         FROM organizations o WHERE o.id = $1 FOR UPDATE`,
-        [id]
-      );
-      const o = rows[0];
-      if (!o) throw notFound('Organisation introuvable');
-      if (o.active_shops >= o.max_shops) {
-        throw new AppError(
-          402,
-          'SHOP_LIMIT_REACHED',
-          o.type === 'merchant'
-            ? 'Un marchand simple n’a qu’une boutique : passez-le en super marchand pour ajouter des sous-comptes.'
-            : `Limite atteinte (${o.max_shops} boutiques) : augmentez « Boutiques autorisées » dans l’abonnement.`
-        );
-      }
-      await assertPhoneFree(c, account.phone);
-      const s = await insertShop(c, id, shop);
-      const u = await insertUser(c, { orgId: id, shopId: s.id, role: 'agent', account });
-      return { shop: s, user: u };
-    });
-    await audit(req, 'admin.client_created', { entity: 'shop', entityId: out.shop.id, meta: { organization_id: id } });
-    res.status(201).json(out);
-  }
-);
 
 adminClientsRouter.patch(
   '/shops/:id',

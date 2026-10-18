@@ -12,6 +12,7 @@ import { Catalog } from './pages/Catalog.jsx';
 import { Admins } from './pages/Admins.jsx';
 import { AuditLog } from './pages/AuditLog.jsx';
 import { Profile } from './pages/Profile.jsx';
+import { Sales } from './pages/Sales.jsx';
 import { PublicCertificate } from './pages/PublicCertificate.jsx';
 import { PublicCheck } from './pages/PublicCheck.jsx';
 
@@ -43,6 +44,7 @@ export function App() {
         <Route path="organisations/:id" element={<Protected roles={READERS}><OrganizationDetail /></Protected>} />
         <Route path="imei" element={<Protected roles={INVESTIGATORS}><ImeiSearch /></Protected>} />
         <Route path="imei/:imei" element={<Protected roles={INVESTIGATORS}><ImeiSearch /></Protected>} />
+        <Route path="ventes" element={<Protected roles={INVESTIGATORS}><Sales /></Protected>} />
         <Route path="declarations" element={<TheftReports />} />
         <Route path="alertes" element={<Protected roles={INVESTIGATORS}><Alerts /></Protected>} />
         <Route path="catalogue" element={<Catalog />} />

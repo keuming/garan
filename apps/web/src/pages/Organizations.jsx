@@ -7,22 +7,41 @@ import { Badge, ErrorBox, Field, Modal, Pager } from '../components/ui.jsx';
 import { AccountFields, EMPTY_ACCOUNT, LocationFields, clean } from '../components/forms.jsx';
 import { date, num } from '../format.js';
 
-/** Création d'un compte client : marchand simple ou super marchand (grossiste). */
+/** Champs d'une entreprise cliente (réutilisé pour marchand, super marchand, sous-marchand). */
+export function OrgFields({ value, onChange, prefix = 'o', merchantLabel = 'Nom' }) {
+  const set = (k) => (e) => onChange({ ...value, [k]: e.target.value });
+  return (
+    <>
+      <div className="form-row">
+        <Field label={merchantLabel} id={`${prefix}-name`}><input id={`${prefix}-name`} className="input" required value={value.name} onChange={set('name')} /></Field>
+        <Field label="RCCM" id={`${prefix}-rccm`}><input id={`${prefix}-rccm`} className="input" required value={value.rccm} onChange={set('rccm')} /></Field>
+      </div>
+      <div className="form-row">
+        <Field label="Contact" id={`${prefix}-phone`}><input id={`${prefix}-phone`} className="input" type="tel" required value={value.phone} onChange={set('phone')} /></Field>
+        <Field label="E-mail" id={`${prefix}-email`}><input id={`${prefix}-email`} className="input" type="email" required value={value.email} onChange={set('email')} /></Field>
+      </div>
+      <LocationFields value={value} onChange={onChange} prefix={prefix} />
+      <Field label="Statut initial" id={`${prefix}-status`}>
+        <select id={`${prefix}-status`} className="input" value={value.status} onChange={set('status')}>
+          <option value="trial">Période d’essai</option>
+          <option value="active">Actif</option>
+        </select>
+      </Field>
+    </>
+  );
+}
+
+export const EMPTY_ORG = { name: '', rccm: '', email: '', phone: '', country: "Côte d'Ivoire", city: 'Abidjan', district: '', status: 'trial' };
+
+/** Création d'un client autonome : super marchand (grossiste) ou marchand simple. */
 function CreateClient({ onDone }) {
   const qc = useQueryClient();
-  const [type, setType] = useState('super_merchant');
-  const [org, setOrg] = useState({ name: '', rccm: '', email: '', phone: '', country: "Côte d'Ivoire", city: 'Abidjan', district: '', max_shops: '5', status: 'trial' });
+  const [type, setType] = useState('merchant');
+  const [org, setOrg] = useState(EMPTY_ORG);
   const [owner, setOwner] = useState(EMPTY_ACCOUNT);
-  const set = (k) => (e) => setOrg({ ...org, [k]: e.target.value });
 
   const m = useMutation({
-    mutationFn: () =>
-      api.post('/admin/organizations', {
-        ...clean(org),
-        type,
-        max_shops: type === 'super_merchant' ? Number(org.max_shops) : undefined,
-        owner
-      }),
+    mutationFn: () => api.post('/admin/organizations', { ...clean(org), type, owner }),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['organizations'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -36,8 +55,8 @@ function CreateClient({ onDone }) {
       <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <legend className="small muted" style={{ marginBottom: 8 }}>Type de client</legend>
         {[
-          ['super_merchant', 'Super marchand', 'Grossiste avec plusieurs boutiques (sous-comptes CLIENT)'],
-          ['merchant', 'Marchand', 'Une seule boutique']
+          ['merchant', 'Marchand', 'Une boutique, un abonnement'],
+          ['super_merchant', 'Super marchand', 'Grossiste qui regroupe plusieurs marchands (sous-marchands)']
         ].map(([v, l, d]) => (
           <label key={v} className="card" style={{ padding: 12, flex: '1 1 200px', cursor: 'pointer', borderColor: type === v ? 'var(--blue)' : undefined, boxShadow: 'none' }}>
             <input type="radio" name="type" value={v} checked={type === v} onChange={() => setType(v)} style={{ marginRight: 8 }} />
@@ -47,53 +66,42 @@ function CreateClient({ onDone }) {
         ))}
       </fieldset>
 
-      <h3>Entreprise</h3>
-      <div className="form-row">
-        <Field label={type === 'merchant' ? 'Nom de la boutique' : 'Raison sociale'} id="o-name"><input id="o-name" className="input" required value={org.name} onChange={set('name')} /></Field>
-        <Field label="RCCM" id="o-rccm"><input id="o-rccm" className="input" required value={org.rccm} onChange={set('rccm')} /></Field>
-      </div>
-      <div className="form-row">
-        <Field label="Contact" id="o-phone"><input id="o-phone" className="input" type="tel" required value={org.phone} onChange={set('phone')} /></Field>
-        <Field label="E-mail" id="o-email"><input id="o-email" className="input" type="email" required value={org.email} onChange={set('email')} /></Field>
-      </div>
-      <LocationFields value={org} onChange={setOrg} prefix="o" />
-      <div className="form-row">
-        <Field label="Statut initial" id="o-status">
-          <select id="o-status" className="input" value={org.status} onChange={set('status')}>
-            <option value="trial">Période d’essai</option>
-            <option value="active">Actif</option>
-          </select>
-        </Field>
-        {type === 'super_merchant' ? (
-          <Field label="Boutiques autorisées" id="o-max"><input id="o-max" className="input" type="number" min="1" max="1000" value={org.max_shops} onChange={set('max_shops')} /></Field>
-        ) : null}
-      </div>
+      <h3>{type === 'super_merchant' ? 'Entreprise du grossiste' : 'Boutique'}</h3>
+      <OrgFields value={org} onChange={setOrg} merchantLabel={type === 'super_merchant' ? 'Raison sociale' : 'Nom de la boutique'} />
 
-      <h3>{type === 'super_merchant' ? 'Compte principal (app Superviseur)' : 'Compte de connexion de la boutique'}</h3>
+      <h3>{type === 'super_merchant' ? 'Compte principal (app Superviseur)' : 'Compte de connexion (app Magasin)'}</h3>
       <AccountFields value={owner} onChange={setOwner} prefix="own" />
       {type === 'super_merchant' ? (
-        <p className="muted small" style={{ margin: 0 }}>Les sous-comptes CLIENT (une boutique et son login chacun) s’ajoutent ensuite depuis la fiche du super marchand.</p>
+        <p className="muted small" style={{ margin: 0 }}>Les sous-marchands (chacun sa boutique, son compte et son abonnement) s’ajoutent ensuite depuis la fiche du super marchand.</p>
       ) : null}
       <button className="btn" type="submit" disabled={m.isPending}>{m.isPending ? 'Création…' : 'Créer le client'}</button>
     </form>
   );
 }
 
+const TABS = [
+  { key: 'merchant', label: 'Marchands' },
+  { key: 'super_merchant', label: 'Super marchands' }
+];
+
 export function Organizations() {
   const { can } = useAuth();
   const navigate = useNavigate();
+  const [tab, setTab] = useState('merchant');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
-  const [type, setType] = useState('');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
 
   const { data, error, isLoading } = useQuery({
-    queryKey: ['organizations', search, status, type, page],
-    queryFn: () => api.get('/admin/organizations', { q: search, status, type, page, limit: 20 }),
+    queryKey: ['organizations', tab, search, status, page],
+    queryFn: () => api.get('/admin/organizations', { type: tab, q: search, status, page, limit: 20 }),
     placeholderData: keepPreviousData
   });
+
+  const isSuper = tab === 'super_merchant';
+  const reset = (fn) => { fn(); setPage(1); };
 
   return (
     <>
@@ -105,14 +113,17 @@ export function Organizations() {
         {can('superadmin', 'admin') ? <button className="btn" type="button" onClick={() => setCreating(true)}>Nouveau client</button> : null}
       </div>
 
-      <form className="toolbar" onSubmit={(e) => { e.preventDefault(); setPage(1); setSearch(q); }}>
+      <div className="segment" role="tablist" style={{ maxWidth: 360 }}>
+        {TABS.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={`segment-item${tab === t.key ? ' active' : ''}`} onClick={() => reset(() => { setTab(t.key); })}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <form className="toolbar" onSubmit={(e) => { e.preventDefault(); reset(() => setSearch(q)); }}>
         <input className="input" placeholder="Nom, téléphone, RCCM, ville…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Rechercher" />
-        <select className="input" style={{ minWidth: 160, flex: '0 0 auto' }} value={type} onChange={(e) => { setType(e.target.value); setPage(1); }} aria-label="Type">
-          <option value="">Tous les types</option>
-          <option value="super_merchant">Super marchands</option>
-          <option value="merchant">Marchands</option>
-        </select>
-        <select className="input" style={{ minWidth: 160, flex: '0 0 auto' }} value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} aria-label="Statut">
+        <select className="input" style={{ minWidth: 160, flex: '0 0 auto' }} value={status} onChange={(e) => reset(() => setStatus(e.target.value))} aria-label="Statut">
           <option value="">Tous les statuts</option>
           <option value="trial">Essai</option>
           <option value="active">Actif</option>
@@ -126,25 +137,35 @@ export function Organizations() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Client</th><th>Type</th><th>Localisation</th><th>Statut</th><th>Échéance</th><th className="num">Boutiques</th><th className="num">Opérations 30 j</th></tr>
+            <tr>
+              <th>Client</th>
+              {isSuper ? <th className="num">Sous-marchands</th> : <th>Rattaché à</th>}
+              <th>Localisation</th>
+              <th>Statut</th>
+              <th>Échéance</th>
+              <th className="num">Opérations 30 j</th>
+            </tr>
           </thead>
           <tbody>
-            {isLoading ? <tr><td colSpan={7} className="empty">Chargement…</td></tr> : null}
+            {isLoading ? <tr><td colSpan={6} className="empty">Chargement…</td></tr> : null}
             {data?.items.map((o) => (
               <tr key={o.id}>
                 <td>
                   <Link to={`/organisations/${o.id}`}><strong>{o.name}</strong></Link>
                   <div className="muted small">{o.phone} · RCCM {o.rccm || '—'}</div>
                 </td>
-                <td><Badge kind="orgType" value={o.type} /></td>
+                {isSuper ? (
+                  <td className="num">{num(o.sub_merchants_count)}</td>
+                ) : (
+                  <td>{o.parent_name ? <Link to={`/organisations/${o.parent_id}`}>{o.parent_name}</Link> : <span className="muted">— indépendant</span>}</td>
+                )}
                 <td>{o.city}, {o.district}<div className="muted small">{o.country}</div></td>
                 <td><Badge kind="orgStatus" value={o.status} /></td>
                 <td>{date(o.subscription_expires_at)}</td>
-                <td className="num">{num(o.shops_count)} / {num(o.max_shops)}</td>
                 <td className="num">{num(o.transactions_30d)}</td>
               </tr>
             ))}
-            {data && !data.items.length ? <tr><td colSpan={7} className="empty">Aucun client trouvé</td></tr> : null}
+            {data && !data.items.length ? <tr><td colSpan={6} className="empty">Aucun {isSuper ? 'super marchand' : 'marchand'} trouvé</td></tr> : null}
           </tbody>
         </table>
       </div>

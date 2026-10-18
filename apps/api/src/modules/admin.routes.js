@@ -124,11 +124,12 @@ adminRouter.get(
       q: z.string().trim().max(80).optional(),
       status: z.enum(['trial', 'active', 'suspended', 'expired']).optional(),
       type: z.enum(['merchant', 'super_merchant']).optional(),
+      parent_id: zUuid.optional(),
       ...zPagination
     })
   }),
   async (req, res) => {
-    const { q, status, type, page, limit } = req.v.query;
+    const { q, status, type, parent_id: parentId, page, limit } = req.v.query;
     const params = [];
     const cond = ['true'];
     if (q) {
@@ -143,14 +144,21 @@ adminRouter.get(
       params.push(type);
       cond.push(`o.type = $${params.length}`);
     }
+    if (parentId) {
+      params.push(parentId);
+      cond.push(`o.parent_id = $${params.length}`);
+    }
     const where = cond.join(' AND ');
     const [items, total] = await Promise.all([
       query(
         `SELECT o.*,
+                p.name AS parent_name,
                 (SELECT count(*)::int FROM shops s WHERE s.organization_id = o.id) AS shops_count,
+                (SELECT count(*)::int FROM organizations c WHERE c.parent_id = o.id) AS sub_merchants_count,
                 (SELECT count(*)::int FROM transactions t WHERE t.organization_id = o.id
                    AND t.occurred_at >= now() - interval '30 days') AS transactions_30d
-         FROM organizations o WHERE ${where} ORDER BY o.created_at DESC ${paginate(page, limit)}`,
+         FROM organizations o LEFT JOIN organizations p ON p.id = o.parent_id
+         WHERE ${where} ORDER BY o.created_at DESC ${paginate(page, limit)}`,
         params
       ),
       query(`SELECT count(*)::int AS n FROM organizations o WHERE ${where}`, params)
@@ -165,8 +173,29 @@ adminRouter.get(
   validate({ params: z.object({ id: zUuid }) }),
   async (req, res) => {
     const { id } = req.v.params;
-    const org = await query(`SELECT * FROM organizations WHERE id = $1`, [id]);
+    const org = await query(
+      `SELECT o.*, p.name AS parent_name, p.type AS parent_type FROM organizations o
+       LEFT JOIN organizations p ON p.id = o.parent_id WHERE o.id = $1`,
+      [id]
+    );
     if (!org.rows[0]) throw notFound('Organisation introuvable');
+    // Sous-marchands (pour un super marchand) + leurs états consolidés sur 30 jours
+    const [children, childStats] = await Promise.all([
+      query(
+        `SELECT o.id, o.name, o.type, o.status, o.phone, o.city, o.district, o.subscription_expires_at, o.created_at,
+                (SELECT count(*)::int FROM transactions t WHERE t.organization_id = o.id
+                   AND t.occurred_at >= now() - interval '30 days') AS transactions_30d
+         FROM organizations o WHERE o.parent_id = $1 ORDER BY o.created_at`,
+        [id]
+      ),
+      query(
+        `SELECT type, count(*)::int AS count, COALESCE(sum(price), 0) AS amount
+         FROM transactions WHERE organization_id IN (SELECT id FROM organizations WHERE parent_id = $1)
+           AND occurred_at >= now() - interval '30 days'
+         GROUP BY type`,
+        [id]
+      )
+    ]);
     const [shops, users, payments, stats] = await Promise.all([
       query(
         `SELECT s.*,
@@ -194,7 +223,15 @@ adminRouter.get(
         [id]
       )
     ]);
-    res.json({ ...org.rows[0], shops: shops.rows, users: users.rows, payments: payments.rows, stats_30d: stats.rows });
+    res.json({
+      ...org.rows[0],
+      shops: shops.rows,
+      users: users.rows,
+      payments: payments.rows,
+      stats_30d: stats.rows,
+      children: children.rows,
+      children_stats_30d: childStats.rows
+    });
   }
 );
 
@@ -234,6 +271,69 @@ adminRouter.post(
     });
     await audit(req, 'admin.payment_recorded', { entity: 'organization', entityId: req.v.params.id, meta: b });
     res.status(201).json(out);
+  }
+);
+
+/* ---------------------- Téléphones vendus (registre) ---------------------- */
+
+// Liste des ventes : IMEI, acquéreur (nom, contacts, n° de CNI), boutique, date.
+adminRouter.get(
+  '/sales',
+  requireAdmin(...INVESTIGATORS),
+  validate({
+    query: z.object({
+      q: z.string().trim().max(60).optional(),
+      organization_id: zUuid.optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
+      ...zPagination
+    })
+  }),
+  async (req, res) => {
+    const { q, organization_id: orgId, from, to, page, limit } = req.v.query;
+    const params = [];
+    const cond = ["t.type = 'sale'"];
+    const add = (sql, v) => {
+      params.push(v);
+      return sql.replace('?', `$${params.length}`);
+    };
+    if (orgId) cond.push(add('t.organization_id = ?', orgId));
+    if (from) cond.push(add('t.occurred_at >= ?', from));
+    if (to) cond.push(add('t.occurred_at < ?', to));
+    if (q) {
+      const term = q.trim().replace(/[%_\\]/g, '\\$&');
+      params.push(term);
+      const i = params.length;
+      cond.push(
+        /^\d{4,15}$/.test(term)
+          ? `(d.imei1 LIKE $${i} || '%' OR d.imei2 LIKE $${i} || '%' OR p.phone1 LIKE '%' || $${i} || '%')`
+          : `(p.full_name ILIKE '%' || $${i} || '%' OR p.id_doc_number ILIKE $${i} || '%' OR t.receipt_number ILIKE $${i} || '%')`
+      );
+    }
+    const where = cond.join(' AND ');
+    const base = `FROM transactions t
+      JOIN devices d ON d.id = t.device_id
+      LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+      JOIN persons p ON p.id = t.person_id
+      JOIN shops s ON s.id = t.shop_id
+      JOIN organizations o ON o.id = t.organization_id
+      WHERE ${where}`;
+    const [items, total] = await Promise.all([
+      query(
+        `SELECT t.id, t.receipt_number, t.occurred_at, t.price, t.condition,
+                d.imei1, d.imei2, d.status AS device_status,
+                b.name AS brand, COALESCE(m.name, d.model_label) AS model,
+                p.full_name AS buyer_name, p.phone1 AS buyer_phone1, p.phone2 AS buyer_phone2,
+                p.id_doc_type AS buyer_id_doc_type, p.id_doc_number AS buyer_id_doc_number,
+                (d.owner_type = 'person' AND d.owner_person_id = p.id) AS is_current_owner,
+                s.name AS shop_name, o.name AS organization_name
+         ${base} ORDER BY t.occurred_at DESC ${paginate(page, limit)}`,
+        params
+      ),
+      query(`SELECT count(*)::int AS n ${base}`, params)
+    ]);
+    await audit(req, 'admin.sales_list', { meta: { q: q ?? null, count: items.rows.length } });
+    res.json({ items: items.rows, total: total.rows[0].n, page, limit });
   }
 );
 

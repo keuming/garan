@@ -167,3 +167,7 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .btn.link.danger:hover { background: var(--danger-bg); }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .section-head h2 { margin: 0; }
+
+.segment { display: inline-flex; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 4px; gap: 4px; }
+.segment-item { border: 0; background: transparent; font: inherit; font-weight: 600; color: var(--ink-2); padding: 8px 18px; border-radius: 7px; cursor: pointer; }
+.segment-item.active { background: var(--blue); color: #fff; }

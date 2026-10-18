@@ -13,6 +13,7 @@ export function Layout() {
     { to: '/', label: 'Tableau de bord', end: true, show: true },
     { to: '/organisations', label: 'Clients', show: can('superadmin', 'admin', 'support') },
     { to: '/imei', label: 'Recherche IMEI', show: can('superadmin', 'admin', 'police') },
+    { to: '/ventes', label: 'Téléphones vendus', show: can('superadmin', 'admin', 'police') },
     { to: '/declarations', label: 'Déclarations de vol', count: dash?.theft_reports_pending, show: true },
     { to: '/alertes', label: 'Alertes', count: dash?.alerts_open, show: can('superadmin', 'admin', 'police') },
     { to: '/catalogue', label: 'Marques & modèles', show: true },
