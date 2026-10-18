@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://garan-api.onrender.com/api/:path*" },
+    { "source": "/api/:path*", "destination": "https://VOTRE-ADRESSE.onrender.com/api/:path*" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ],
   "headers": [
