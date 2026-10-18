@@ -109,6 +109,7 @@ export const api = {
   get: (path, params) => raw(path + qs(params)),
   post: (path, body) => raw(path, { method: 'POST', body: body ?? {} }),
   patch: (path, body) => raw(path, { method: 'PATCH', body }),
+  del: (path) => raw(path, { method: 'DELETE' }),
   blob: (path, params) => raw(path + qs(params), { as: 'blob' }),
   public: (path, opts = {}) => raw(path, { ...opts, auth: false })
 };

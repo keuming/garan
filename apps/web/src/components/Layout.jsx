@@ -38,8 +38,10 @@ export function Layout() {
             ))}
         </nav>
         <div className="me">
-          <strong>{admin.full_name}</strong>
-          {LABELS.role[admin.role]}
+          <NavLink to="/profil" style={{ color: '#fff', textDecoration: 'none' }}>
+            <strong>{admin.full_name}</strong>
+          </NavLink>
+          {LABELS.role[admin.role]} · <NavLink to="/profil" style={{ color: '#c9d4ea' }}>Mon profil</NavLink>
           <div style={{ marginTop: 8 }}>
             <button className="btn secondary small" type="button" onClick={logout}>
               Se déconnecter

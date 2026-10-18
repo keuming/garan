@@ -9,6 +9,7 @@ export const dateTime = (d) => (d ? dtf.format(new Date(d)) : '—');
 
 export const LABELS = {
   orgStatus: { trial: 'Essai', active: 'Actif', suspended: 'Suspendu', expired: 'Expiré' },
+  orgType: { merchant: 'Marchand', super_merchant: 'Super marchand' },
   txType: { stock_in: 'Entrée en stock', purchase: 'Rachat', sale: 'Vente' },
   condition: { new: 'Neuf', like_new: 'Quasi neuf', used: 'Seconde main' },
   deviceStatus: { active: 'Normal', stolen: 'Volé', lost: 'Perdu', blocked: 'Bloqué' },
@@ -21,6 +22,7 @@ export const LABELS = {
 
 export const tone = {
   orgStatus: { trial: 'info', active: 'ok', suspended: 'danger', expired: 'warn' },
+  orgType: { merchant: 'muted', super_merchant: 'info' },
   deviceStatus: { active: 'ok', stolen: 'danger', lost: 'warn', blocked: 'danger' },
   reportStatus: { pending: 'warn', confirmed: 'danger', rejected: 'muted', resolved: 'ok' }
 };

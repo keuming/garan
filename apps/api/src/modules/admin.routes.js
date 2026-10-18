@@ -2,8 +2,8 @@ import { Router } from 'express';
 import path from 'node:path';
 import { z } from 'zod';
 import { query, withTransaction } from '../db.js';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
-import { hashSecret, revokeAllRefreshTokens } from '../lib/security.js';
+import { AppError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
+import { hashSecret, revokeAllRefreshTokens, verifySecret } from '../lib/security.js';
 import { storage } from '../lib/storage.js';
 import { audit } from '../lib/audit.js';
 import { validate, zEmail, zImei, zPagination, zText, zUuid } from '../lib/validate.js';
@@ -24,6 +24,65 @@ const INVESTIGATORS = ['superadmin', 'admin', 'police'];
 const paginate = (page, limit) => `LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
 
 adminRouter.get('/me', requireAdmin(...ALL), (req, res) => res.json({ admin: req.admin }));
+
+/* ------------------------------ Mon profil ------------------------------ */
+
+/** Modifie son propre nom et/ou son e-mail de connexion (le mot de passe actuel est exigé). */
+adminRouter.patch(
+  '/me',
+  requireAdmin(...ALL),
+  validate({
+    body: z.object({
+      full_name: zText(120).optional(),
+      email: zEmail.optional(),
+      current_password: z.string().min(1, 'Mot de passe actuel requis').max(200)
+    })
+  }),
+  async (req, res) => {
+    const b = req.v.body;
+    const { rows } = await query(`SELECT password_hash FROM admins WHERE id = $1`, [req.auth.sub]);
+    if (!(await verifySecret(b.current_password, rows[0].password_hash))) {
+      throw new AppError(400, 'INVALID_PASSWORD', 'Mot de passe actuel incorrect');
+    }
+    if (b.email) {
+      const taken = await query(`SELECT 1 FROM admins WHERE email = $1 AND id <> $2`, [b.email, req.auth.sub]);
+      if (taken.rowCount) throw conflict('EMAIL_TAKEN', 'Cet e-mail est déjà utilisé');
+    }
+    const fields = Object.entries({ full_name: b.full_name, email: b.email }).filter(([, v]) => v);
+    if (!fields.length) throw badRequest('NOTHING_TO_UPDATE', 'Aucune modification');
+    const { rows: out } = await query(
+      `UPDATE admins SET ${fields.map(([k], i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1
+       RETURNING id, email, full_name, role, status`,
+      [req.auth.sub, ...fields.map(([, v]) => v)]
+    );
+    await audit(req, 'admin.profile_updated', { entity: 'admin', entityId: req.auth.sub, meta: { fields: fields.map(([k]) => k) } });
+    res.json({ admin: out[0] });
+  }
+);
+
+/** Change son propre mot de passe ; toutes les autres sessions sont fermées. */
+adminRouter.post(
+  '/me/password',
+  requireAdmin(...ALL),
+  validate({
+    body: z
+      .object({
+        current_password: z.string().min(1).max(200),
+        new_password: z.string().min(10, 'Nouveau mot de passe : 10 caractères minimum').max(200)
+      })
+      .refine((v) => v.current_password !== v.new_password, { message: 'Le nouveau mot de passe doit être différent', path: ['new_password'] })
+  }),
+  async (req, res) => {
+    const { rows } = await query(`SELECT password_hash FROM admins WHERE id = $1`, [req.auth.sub]);
+    if (!(await verifySecret(req.v.body.current_password, rows[0].password_hash))) {
+      throw new AppError(400, 'INVALID_PASSWORD', 'Mot de passe actuel incorrect');
+    }
+    await query(`UPDATE admins SET password_hash = $2 WHERE id = $1`, [req.auth.sub, await hashSecret(req.v.body.new_password)]);
+    await revokeAllRefreshTokens('admin', req.auth.sub);
+    await audit(req, 'admin.password_changed', { entity: 'admin', entityId: req.auth.sub });
+    res.status(204).end();
+  }
+);
 
 /* ------------------------------ Tableau de bord ------------------------------ */
 
@@ -64,11 +123,12 @@ adminRouter.get(
     query: z.object({
       q: z.string().trim().max(80).optional(),
       status: z.enum(['trial', 'active', 'suspended', 'expired']).optional(),
+      type: z.enum(['merchant', 'super_merchant']).optional(),
       ...zPagination
     })
   }),
   async (req, res) => {
-    const { q, status, page, limit } = req.v.query;
+    const { q, status, type, page, limit } = req.v.query;
     const params = [];
     const cond = ['true'];
     if (q) {
@@ -78,6 +138,10 @@ adminRouter.get(
     if (status) {
       params.push(status);
       cond.push(`o.status = $${params.length}`);
+    }
+    if (type) {
+      params.push(type);
+      cond.push(`o.type = $${params.length}`);
     }
     const where = cond.join(' AND ');
     const [items, total] = await Promise.all([
@@ -104,9 +168,17 @@ adminRouter.get(
     const org = await query(`SELECT * FROM organizations WHERE id = $1`, [id]);
     if (!org.rows[0]) throw notFound('Organisation introuvable');
     const [shops, users, payments, stats] = await Promise.all([
-      query(`SELECT * FROM shops WHERE organization_id = $1 ORDER BY created_at`, [id]),
       query(
-        `SELECT u.id, u.role, u.full_name, u.phone, u.status, u.last_login_at, s.name AS shop_name
+        `SELECT s.*,
+                (SELECT count(*)::int FROM users u WHERE u.shop_id = s.id AND u.role = 'agent') AS accounts_count,
+                (SELECT count(*)::int FROM transactions t WHERE t.shop_id = s.id) AS transactions_count
+         FROM shops s WHERE s.organization_id = $1 ORDER BY s.created_at`,
+        [id]
+      ),
+      query(
+        `SELECT u.id, u.role, u.full_name, u.phone, u.status, u.last_login_at, u.shop_id, u.locked_until,
+                s.name AS shop_name,
+                (SELECT count(*)::int FROM transactions t WHERE t.user_id = u.id) AS transactions_count
          FROM users u LEFT JOIN shops s ON s.id = u.shop_id WHERE u.organization_id = $1 ORDER BY u.role DESC, u.created_at`,
         [id]
       ),
@@ -123,32 +195,6 @@ adminRouter.get(
       )
     ]);
     res.json({ ...org.rows[0], shops: shops.rows, users: users.rows, payments: payments.rows, stats_30d: stats.rows });
-  }
-);
-
-adminRouter.patch(
-  '/organizations/:id',
-  requireAdmin(...STAFF),
-  validate({
-    params: z.object({ id: zUuid }),
-    body: z.object({
-      name: zText(120).optional(),
-      status: z.enum(['trial', 'active', 'suspended', 'expired']).optional(),
-      plan: zText(40).optional(),
-      max_shops: z.coerce.number().int().min(1).max(1000).optional(),
-      subscription_expires_at: z.coerce.date().nullable().optional()
-    })
-  }),
-  async (req, res) => {
-    const fields = Object.entries(req.v.body).filter(([, v]) => v !== undefined);
-    if (!fields.length) throw badRequest('NOTHING_TO_UPDATE', 'Aucune modification');
-    const { rows } = await query(
-      `UPDATE organizations SET ${fields.map(([k], i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1 RETURNING *`,
-      [req.v.params.id, ...fields.map(([, v]) => v)]
-    );
-    if (!rows[0]) throw notFound('Organisation introuvable');
-    await audit(req, 'admin.organization_updated', { entity: 'organization', entityId: rows[0].id, meta: req.v.body });
-    res.json(rows[0]);
   }
 );
 
@@ -538,9 +584,10 @@ adminRouter.patch(
     params: z.object({ id: zUuid }),
     body: z.object({
       full_name: zText(120).optional(),
+      email: zEmail.optional(),
       role: z.enum(['superadmin', 'admin', 'support', 'police']).optional(),
       status: z.enum(['active', 'disabled']).optional(),
-      password: z.string().min(10).max(200).optional()
+      password: z.string().min(10, 'Mot de passe : 10 caractères minimum').max(200).optional()
     })
   }),
   async (req, res) => {
@@ -549,9 +596,13 @@ adminRouter.patch(
     if (id === req.auth.sub && (b.status === 'disabled' || (b.role && b.role !== 'superadmin'))) {
       throw forbidden('Vous ne pouvez pas vous désactiver ni vous rétrograder');
     }
+    if (b.email) {
+      const taken = await query(`SELECT 1 FROM admins WHERE email = $1 AND id <> $2`, [b.email, id]);
+      if (taken.rowCount) throw conflict('EMAIL_TAKEN', 'Cet e-mail est déjà utilisé');
+    }
     const fields = [];
     const values = [];
-    for (const k of ['full_name', 'role', 'status']) if (b[k]) { fields.push(k); values.push(b[k]); }
+    for (const k of ['full_name', 'email', 'role', 'status']) if (b[k]) { fields.push(k); values.push(b[k]); }
     if (b.password) { fields.push('password_hash'); values.push(await hashSecret(b.password)); }
     if (!fields.length) throw badRequest('NOTHING_TO_UPDATE', 'Aucune modification');
     const { rows } = await query(
@@ -562,5 +613,31 @@ adminRouter.patch(
     if (b.password || b.status === 'disabled') await revokeAllRefreshTokens('admin', id);
     await audit(req, 'admin.admin_updated', { entity: 'admin', entityId: id, meta: { fields: Object.keys(b) } });
     res.json(rows[0]);
+  }
+);
+
+adminRouter.delete(
+  '/admins/:id',
+  requireAdmin('superadmin'),
+  validate({ params: z.object({ id: zUuid }) }),
+  async (req, res) => {
+    const { id } = req.v.params;
+    if (id === req.auth.sub) throw forbidden('Vous ne pouvez pas supprimer votre propre compte');
+    const { rows } = await query(
+      `SELECT
+         EXISTS (SELECT 1 FROM admins WHERE id = $1) AS exists,
+         (SELECT count(*)::int FROM subscription_payments WHERE recorded_by = $1)
+       + (SELECT count(*)::int FROM theft_reports WHERE reviewed_by = $1)
+       + (SELECT count(*)::int FROM security_alerts WHERE handled_by = $1) AS refs`,
+      [id]
+    );
+    if (!rows[0].exists) throw notFound('Administrateur introuvable');
+    if (rows[0].refs) {
+      throw conflict('HAS_HISTORY', 'Cet administrateur a traité des paiements, déclarations ou alertes : désactivez-le plutôt que de le supprimer.');
+    }
+    await query(`DELETE FROM refresh_tokens WHERE subject_type = 'admin' AND subject_id = $1`, [id]);
+    await query(`DELETE FROM admins WHERE id = $1`, [id]);
+    await audit(req, 'admin.admin_deleted', { entity: 'admin', entityId: id });
+    res.status(204).end();
   }
 );

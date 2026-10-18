@@ -24,7 +24,7 @@ Object.assign(process.env, {
   DATABASE_URL: DB_URL,
   DATABASE_SSL: process.env.TEST_DATABASE_SSL ?? 'false',
   JWT_ACCESS_SECRET: 'test-secret-test-secret-test-secret-123',
-  STORAGE_DRIVER: 'local',
+  STORAGE_DRIVER: process.env.TEST_STORAGE_DRIVER ?? 'local',
   STORAGE_LOCAL_DIR: await fs.mkdtemp(path.join(os.tmpdir(), 'garan-storage-')),
   BCRYPT_ROUNDS: '4',
   PUBLIC_WEB_URL: 'https://garan.test'

@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
   }, [qc]);
 
   const value = useMemo(
-    () => ({ admin, ready, login, logout, can: (...roles) => Boolean(admin && roles.includes(admin.role)) }),
+    () => ({ admin, ready, login, logout, setAdmin, can: (...roles) => Boolean(admin && roles.includes(admin.role)) }),
     [admin, ready, login, logout]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

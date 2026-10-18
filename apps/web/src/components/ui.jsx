@@ -51,10 +51,10 @@ export function Field({ label, id, children }) {
   );
 }
 
-export function Modal({ title, onClose, children }) {
+export function Modal({ title, onClose, children, wide = true }) {
   return (
     <div className="overlay" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className={`card${wide ? ' wide' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div className="page-head">
           <h2>{title}</h2>
           <button className="btn secondary small" type="button" onClick={onClose}>

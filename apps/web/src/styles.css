@@ -159,3 +159,11 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .login .card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 16px; }
 .overlay { position: fixed; inset: 0; background: rgba(10, 31, 68, .45); display: grid; place-items: center; padding: 16px; z-index: 50; }
 .overlay .card { width: 100%; max-width: 520px; max-height: 90vh; overflow: auto; }
+.overlay .card.wide { max-width: 760px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.btn.link { background: transparent; color: var(--blue); border-color: transparent; padding: 0 8px; }
+.btn.link:hover { background: var(--blue-50); }
+.btn.link.danger { color: var(--danger); background: transparent; }
+.btn.link.danger:hover { background: var(--danger-bg); }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.section-head h2 { margin: 0; }

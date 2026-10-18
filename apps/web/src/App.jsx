@@ -11,6 +11,7 @@ import { Alerts } from './pages/Alerts.jsx';
 import { Catalog } from './pages/Catalog.jsx';
 import { Admins } from './pages/Admins.jsx';
 import { AuditLog } from './pages/AuditLog.jsx';
+import { Profile } from './pages/Profile.jsx';
 import { PublicCertificate } from './pages/PublicCertificate.jsx';
 import { PublicCheck } from './pages/PublicCheck.jsx';
 
@@ -37,6 +38,7 @@ export function App() {
       {/* Back-office */}
       <Route element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
+        <Route path="profil" element={<Profile />} />
         <Route path="organisations" element={<Protected roles={READERS}><Organizations /></Protected>} />
         <Route path="organisations/:id" element={<Protected roles={READERS}><OrganizationDetail /></Protected>} />
         <Route path="imei" element={<Protected roles={INVESTIGATORS}><ImeiSearch /></Protected>} />
