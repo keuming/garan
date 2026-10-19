@@ -3,6 +3,7 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://garan-api.onrender.com",
@@ -11,6 +12,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "android": { "buildType": "app-bundle" },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://garan-api.onrender.com",

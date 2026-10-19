@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { Platform, View, Text } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { SvgXml } from 'react-native-svg';
@@ -77,6 +77,12 @@ export default function Receipt() {
     setSharing(true);
     setShareError(null);
     try {
+      if (Platform.OS === 'web') {
+        const w = window.open('', '_blank');
+        if (w) { w.document.write(receiptHtml(t, qr ?? '', barcode ?? '')); w.document.close(); w.focus(); w.print(); }
+        setSharing(false);
+        return;
+      }
       const { uri } = await Print.printToFileAsync({ html: receiptHtml(t, qr ?? '', barcode ?? '') });
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Reçu ${t.receipt_number}`, UTI: 'com.adobe.pdf' });

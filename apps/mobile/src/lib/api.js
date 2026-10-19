@@ -1,5 +1,14 @@
+import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+
+// Stockage des jetons : SecureStore sur mobile, localStorage sur le web (PWA).
+const webStore = {
+  getItemAsync: async (k) => { try { return window.localStorage.getItem(k); } catch { return null; } },
+  setItemAsync: async (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* indisponible */ } },
+  deleteItemAsync: async (k) => { try { window.localStorage.removeItem(k); } catch { /* indisponible */ } }
+};
+const store = Platform.OS === 'web' ? webStore : SecureStore;
 
 const BASE = `${String(Constants.expoConfig?.extra?.apiUrl ?? '').replace(/\/$/, '')}/api/v1`;
 const REFRESH_KEY = 'garan.refresh';
@@ -26,16 +35,16 @@ export const tokens = {
   async set(k, { access_token: a, refresh_token: r }) {
     kind = k;
     accessToken = a;
-    await SecureStore.setItemAsync(KIND_KEY, k);
-    if (r) await SecureStore.setItemAsync(REFRESH_KEY, r);
+    await store.setItemAsync(KIND_KEY, k);
+    if (r) await store.setItemAsync(REFRESH_KEY, r);
   },
-  getKind: () => (kind ? Promise.resolve(kind) : SecureStore.getItemAsync(KIND_KEY)),
-  getRefresh: () => SecureStore.getItemAsync(REFRESH_KEY),
+  getKind: () => (kind ? Promise.resolve(kind) : store.getItemAsync(KIND_KEY)),
+  getRefresh: () => store.getItemAsync(REFRESH_KEY),
   async clear() {
     accessToken = null;
     kind = null;
-    await SecureStore.deleteItemAsync(REFRESH_KEY);
-    await SecureStore.deleteItemAsync(KIND_KEY);
+    await store.deleteItemAsync(REFRESH_KEY);
+    await store.deleteItemAsync(KIND_KEY);
   },
   onSessionLost(fn) {
     onSessionLost = fn;

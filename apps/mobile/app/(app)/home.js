@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Banner, Card, Muted, Screen, Wordmark } from '../../src/components/ui';
+import { UpdateBanner } from '../../src/components/UpdateBanner';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { date, fcfa, num, periodRange } from '../../src/lib/format';
@@ -65,6 +66,7 @@ function SupervisorHome() {
         <Text style={st.heroName} numberOfLines={2}>{user?.organization?.name}</Text>
         <Text style={st.heroRole}>Super marchand · {user?.full_name}</Text>
       </View>
+      <UpdateBanner />
       <OrzayahBalance />
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
         <Kpi label="Sous-marchands" value={num(ov.data?.sub_merchants)} />
@@ -103,6 +105,8 @@ function MerchantHome() {
         <Text style={st.heroName} numberOfLines={2}>{shopName}</Text>
         <Text style={st.heroRole}>{user?.full_name} · {isOwner ? 'Compte principal' : 'Vendeur'}</Text>
       </View>
+
+      <UpdateBanner />
 
       {daysLeft !== null && daysLeft <= 0 ? (
         <Banner tone="danger" title="Abonnement expiré">Les nouvelles opérations sont bloquées. Contactez gaRAN.</Banner>

@@ -17,6 +17,16 @@ export default {
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
+    // Mises à jour à distance (OTA) : le JS/les écrans se mettent à jour sans régénérer l'APK.
+    runtimeVersion: { policy: 'appVersion' },
+    updates: {
+      url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+      enabled: true,
+      checkAutomatically: 'ON_LOAD',
+      fallbackToCacheTimeout: 0
+    },
+    // Version web (PWA) : la même app servie dans le navigateur (iPhone inclus).
+    web: { bundler: 'metro', output: 'static', favicon: './assets/icon.png' },
     splash: { image: './assets/splash.png', resizeMode: 'contain', backgroundColor: '#00D27A' },
     ios: {
       bundleIdentifier: 'com.orzayah.garan',

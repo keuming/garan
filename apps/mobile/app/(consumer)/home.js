@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Banner, Card, Loading, Muted, Screen, Wordmark } from '../../src/components/ui';
+import { UpdateBanner } from '../../src/components/UpdateBanner';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { date } from '../../src/lib/format';
@@ -69,6 +70,8 @@ export default function ConsumerHome() {
           <Text style={{ fontSize: 20, fontWeight: '700', color: colors.ink }}>Bonjour {consumer?.full_name?.split(' ')[0] ?? ''}</Text>
           <Muted>{active.length} téléphone(s) lié(s) à votre compte</Muted>
         </View>
+
+        <UpdateBanner />
 
         <View style={st.grid}>
           <Tile title="Linker mon téléphone" sub="Enregistrer et protéger" onPress={() => router.push('/link')} />
