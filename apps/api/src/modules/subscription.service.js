@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { query, withTransaction } from '../db.js';
 import { notFound } from '../lib/errors.js';
-import { createDeposit, getOperation } from '../lib/orzayah.js';
+import { createDeposit, getOperation, opReference, opStatus, opNextAction } from '../lib/orzayah.js';
 import { logger } from '../logger.js';
 
 /* Tarifs d'abonnement, en FCFA par mois. */
@@ -26,8 +26,13 @@ export async function initiateSubscription({ subjectType, subjectId, months = 1,
 
   try {
     const op = await createDeposit({ operator, accountNumber, amount: amountCentimes, idempotencyKey });
-    await query(`UPDATE orzayah_payments SET reference = $2, status = $3 WHERE id = $1`, [paymentId, op.reference ?? op.id ?? null, op.status ?? 'PENDING']);
-    return { payment_id: paymentId, status: op.status ?? 'PENDING', amount_fcfa: amountFcfa, months, next_action: op.nextAction ?? null };
+    const reference = opReference(op);
+    const status = opStatus(op) ?? 'PENDING';
+    // Trace la forme brute renvoyée par ORZAYAH (clés + payload, sans secret) : indispensable
+    // pour vérifier quel champ porte la référence à sonder ensuite.
+    logger.info({ paymentId, reference, status, keys: op && typeof op === 'object' ? Object.keys(op) : null, raw: op }, 'ORZAYAH : dépôt créé');
+    await query(`UPDATE orzayah_payments SET reference = $2, status = $3 WHERE id = $1`, [paymentId, reference, status]);
+    return { payment_id: paymentId, status, amount_fcfa: amountFcfa, months, next_action: opNextAction(op) };
   } catch (err) {
     await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
     throw err;
@@ -85,8 +90,8 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
     logger.warn({ err: err.message, paymentId }, 'ORZAYAH : relecture du statut impossible');
     return { status: row.status, applied: false, expires_at: null, pending: true };
   }
-  const status = op.status ?? row.status;
-  await query(`UPDATE orzayah_payments SET status = $2, failure_reason = $3 WHERE id = $1`, [paymentId, status, op.failureReason ?? null]);
+  const status = opStatus(op) ?? row.status;
+  await query(`UPDATE orzayah_payments SET status = $2, failure_reason = $3 WHERE id = $1`, [paymentId, status, op.failureReason ?? op.failure_reason ?? null]);
 
   if (status !== 'SUCCESS') return { status, applied: false, expires_at: null };
 

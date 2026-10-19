@@ -50,6 +50,37 @@ async function oz(path, { method = 'GET', body } = {}) {
 export const createDeposit = ({ operator, accountNumber, amount, idempotencyKey }) =>
   oz('/deposits', { method: 'POST', body: { operator, accountNumber, amount, idempotencyKey } });
 
+/**
+ * Extrait la référence d'opération ORZAYAH, quelle que soit la casse/clé utilisée dans la réponse.
+ * On la stocke pour ensuite sonder /transactions/{référence}.
+ */
+export function opReference(op) {
+  if (!op || typeof op !== 'object') return null;
+  const nested = op.transaction ?? op.deposit ?? op.operation ?? op.data ?? null;
+  const keys = ['reference', 'transactionReference', 'transaction_reference', 'transactionId', 'transaction_id', 'operationId', 'operation_id', 'operationReference', 'publicReference', 'public_reference', 'ref', 'id'];
+  for (const src of [op, nested]) {
+    if (!src || typeof src !== 'object') continue;
+    for (const k of keys) {
+      if (src[k] != null && src[k] !== '') return String(src[k]);
+    }
+  }
+  return null;
+}
+
+/** Statut d'opération, tolérant aux variantes de clé. */
+export function opStatus(op) {
+  if (!op || typeof op !== 'object') return null;
+  const nested = op.transaction ?? op.deposit ?? op.operation ?? op.data ?? {};
+  const s = op.status ?? op.state ?? op.transactionStatus ?? nested.status ?? nested.state ?? null;
+  return s ? String(s).toUpperCase() : null;
+}
+
+/** Message « action à faire » (confirmation USSD/notification), tolérant aux variantes. */
+export function opNextAction(op) {
+  if (!op || typeof op !== 'object') return null;
+  return op.nextAction ?? op.next_action ?? op.instructions ?? null;
+}
+
 /** Reverse : paie un marchand ORZAYAH depuis le solde gaRAN. */
 export const createMerchantPayment = ({ merchantId, amount, description, idempotencyKey }) =>
   oz('/merchant-payments', { method: 'POST', body: { merchantId, amount, description, idempotencyKey } });
