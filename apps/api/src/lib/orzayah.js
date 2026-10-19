@@ -62,3 +62,10 @@ export async function getBalance() {
   const b = await oz('/balance');
   return { currency: b.currency ?? 'XOF', balance: fromCentimes(b.balance), balance_centimes: b.balance, is_frozen: Boolean(b.isFrozen) };
 }
+
+/** Lien de collecte pay.orzayah.com : le payeur choisit son mode de paiement sur la page ORZAYAH. */
+export const createPaymentLink = ({ amount, description, idempotencyKey }) =>
+  oz('/payment-links', { method: 'POST', body: { amount, description, idempotencyKey } });
+
+/** Statut d'un lien : PENDING tant qu'il n'est pas payé, puis statut du paiement (SUCCESS, FAILED...). */
+export const getPaymentLink = (slug) => oz(`/payment-links/${encodeURIComponent(slug)}`);
