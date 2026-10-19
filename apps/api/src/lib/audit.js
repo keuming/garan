@@ -7,7 +7,7 @@ import { logger } from '../logger.js';
  */
 export async function audit(req, action, { entity = null, entityId = null, meta = {}, client = null } = {}) {
   const actor = req?.auth
-    ? { type: req.auth.typ, id: req.auth.sub }
+    ? { type: ['user', 'admin', 'public', 'system'].includes(req.auth.typ) ? req.auth.typ : 'user', id: req.auth.sub }
     : { type: req ? 'public' : 'system', id: null };
   try {
     await (client ?? { query }).query(
