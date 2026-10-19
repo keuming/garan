@@ -56,7 +56,7 @@ export default function Availability() {
   async function shareItem(it) {
     if (!shopId) return;
     const name = user?.role === 'agent' ? user.shops?.[0]?.name : user?.organization?.name;
-    const url = shopPublicUrl(shopId);
+    const url = `${shopPublicUrl(shopId)}?a=${it.id}`;
     await Share.share({
       message: `📱 ${it.title} — ${fcfa(it.price)}\n${it.description ? `${it.description}\n` : ''}Disponible chez ${name}. Voir tous nos téléphones et réserver :\n${url}`,
       url

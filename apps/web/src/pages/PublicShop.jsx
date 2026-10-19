@@ -39,15 +39,16 @@ export function PublicShop() {
 
   async function shareItem(it) {
     const text = `📱 ${it.title} — ${fcfa(it.price)}, disponible chez ${shop.name}. Voir et réserver :`;
+    const itemUrl = `${window.location.origin}/boutique/${shopId}?a=${it.id}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: it.title, text, url });
+        await navigator.share({ title: it.title, text, url: itemUrl });
         return;
       }
     } catch {
       return; // partage annulé
     }
-    window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, '_blank', 'noopener');
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${itemUrl}`)}`, '_blank', 'noopener');
   }
 
   function copyLink() {
