@@ -7,7 +7,7 @@ import { useAuth } from '../../src/lib/auth';
 import { fcfa } from '../../src/lib/format';
 import { colors, radius } from '../../src/lib/theme';
 
-function ListingCard({ item, canEdit }) {
+function ListingCard({ item, canEdit, onShare }) {
   const out = item.quantity <= 0;
   return (
     <Pressable
@@ -29,6 +29,11 @@ function ListingCard({ item, canEdit }) {
             <Text style={[st.badge, out ? st.badgeOut : st.badgeOk]}>{out ? 'Rupture' : `${item.quantity} en stock`}</Text>
             {item.status === 'hidden' ? <Text style={[st.badge, st.badgeHidden]}>Masqué</Text> : null}
           </View>
+          {!out && item.status !== 'hidden' ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={`Partager ${item.title}`} onPress={() => onShare(item)} hitSlop={8} style={st.shareBtn}>
+              <Text style={st.shareText}>Partager cet article</Text>
+            </Pressable>
+          ) : null}
         </View>
       </Card>
     </Pressable>
@@ -46,6 +51,16 @@ export default function Availability() {
     const url = shopPublicUrl(shopId);
     const name = user?.role === 'agent' ? user.shops?.[0]?.name : user?.organization?.name;
     await Share.share({ message: `🛍️ Téléphones disponibles chez ${name} — voir et réserver :\n${url}`, url });
+  }
+
+  async function shareItem(it) {
+    if (!shopId) return;
+    const name = user?.role === 'agent' ? user.shops?.[0]?.name : user?.organization?.name;
+    const url = shopPublicUrl(shopId);
+    await Share.share({
+      message: `📱 ${it.title} — ${fcfa(it.price)}\n${it.description ? `${it.description}\n` : ''}Disponible chez ${name}. Voir tous nos téléphones et réserver :\n${url}`,
+      url
+    });
   }
 
   return (
@@ -69,7 +84,7 @@ export default function Availability() {
       {!isLoading && items.length === 0 ? (
         <Muted>Aucun article pour l’instant. {isOwner ? 'Appuyez sur « Ajouter un article ».' : 'Demandez au compte principal d’en ajouter.'}</Muted>
       ) : null}
-      {items.map((it) => <ListingCard key={it.id} item={it} canEdit={isOwner} />)}
+      {items.map((it) => <ListingCard key={it.id} item={it} canEdit={isOwner} onShare={shareItem} />)}
     </Screen>
   );
 }
@@ -82,5 +97,7 @@ const st = StyleSheet.create({
   badge: { fontSize: 11.5, fontWeight: '700', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' },
   badgeOk: { backgroundColor: colors.okBg, color: colors.ok },
   badgeOut: { backgroundColor: colors.dangerBg, color: colors.danger },
+  shareBtn: { alignSelf: 'flex-start', marginTop: 6, paddingVertical: 5, paddingHorizontal: 12, borderRadius: 999, backgroundColor: colors.emeraldSoft },
+  shareText: { color: colors.emeraldDeep, fontWeight: '800', fontSize: 12.5 },
   badgeHidden: { backgroundColor: colors.line, color: colors.ink2 }
 });

@@ -1,11 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Card, Muted, Screen, Wordmark } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/UpdateBanner';
 import { ProtectedHero } from '../../src/components/ProtectedHero';
 import { BalanceCard } from '../../src/components/BalanceCard';
-import { api } from '../../src/lib/api';
+import { api, shopPublicUrl } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { date, fcfa, num, periodRange } from '../../src/lib/format';
 import { colors, radius, shadow } from '../../src/lib/theme';
@@ -21,6 +21,57 @@ function Tile({ title, sub, onPress, tone = 'green', icon }) {
         {sub ? <Text style={{ color: tone === 'white' ? colors.ink2 : 'rgba(255,255,255,0.9)', fontSize: 12.5 }}>{sub}</Text> : null}
       </View>
     </Pressable>
+  );
+}
+
+/** Action principale de la boutique : large, impossible à manquer. */
+function PrimaryAction({ title, sub, icon, onPress }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [st.primary, pressed && { opacity: 0.9, transform: [{ scale: 0.99 }] }]}
+    >
+      <View style={st.primaryIcon}><Text style={{ fontSize: 26 }}>{icon}</Text></View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={st.primaryTitle}>{title}</Text>
+        <Text style={st.primarySub}>{sub}</Text>
+      </View>
+      <Text style={st.primaryChevron}>›</Text>
+    </Pressable>
+  );
+}
+
+/** Vitrine en ligne : lien partageable sur WhatsApp et les réseaux. */
+function VitrineCard() {
+  const { user } = useAuth();
+  const shopId = user?.shops?.[0]?.id;
+  const items = useQuery({ queryKey: ['org', 'listings'], queryFn: () => api.get('/org/listings') });
+  const active = (items.data?.items ?? []).filter((i) => i.status !== 'hidden' && i.quantity > 0).length;
+  if (!shopId) return null;
+  const name = user?.role === 'agent' ? user.shops?.[0]?.name : user?.organization?.name;
+  const share = () => {
+    const url = shopPublicUrl(shopId);
+    return Share.share({ message: `🛍️ Téléphones disponibles chez ${name} — voir et réserver :\n${url}`, url });
+  };
+  return (
+    <Card style={{ gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Text style={{ fontSize: 24 }}>🛍️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={st.vitrineTitle}>Ma vitrine en ligne</Text>
+          <Muted>{active > 0 ? `${num(active)} ${active > 1 ? 'articles visibles' : 'article visible'} par vos clients` : 'Ajoutez vos téléphones disponibles'}</Muted>
+        </View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Pressable accessibilityRole="button" onPress={share} style={[st.pill, { backgroundColor: colors.blue }]}>
+          <Text style={[st.pillText, { color: '#fff' }]}>Partager</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={() => router.push('/availability')} style={[st.pill, { backgroundColor: colors.emeraldSoft }]}>
+          <Text style={[st.pillText, { color: colors.emeraldDeep }]}>Gérer les articles</Text>
+        </Pressable>
+      </View>
+    </Card>
   );
 }
 
@@ -102,13 +153,13 @@ function MerchantHome() {
 
       <BalanceCard />
 
-      <Text style={st.section}>Opérations</Text>
+      <PrimaryAction title="Nouvelle vente" sub="Lier le téléphone à l’acheteur et encaisser" icon="💸" onPress={() => router.push('/sale')} />
       <View style={st.grid}>
-        <Tile title="Vente" sub="Lier le téléphone à l’acheteur" icon="💸" tone="green" onPress={() => router.push('/sale')} />
         <Tile title="Rachat" sub="Acheter à un particulier" icon="📥" tone="navy" onPress={() => router.push({ pathname: '/operation', params: { type: 'purchase' } })} />
         <Tile title="Entrée en stock" sub="Téléphone neuf fournisseur" icon="📦" tone="cyan" onPress={() => router.push({ pathname: '/operation', params: { type: 'stock_in' } })} />
-        <Tile title="Disponibilité" sub="Vitrine des articles en boutique" icon="🛍️" tone="white" onPress={() => router.push('/availability')} />
       </View>
+
+      <VitrineCard />
 
       <Text style={st.section}>Gestion</Text>
       <View style={st.grid}>
@@ -148,10 +199,18 @@ const st = StyleSheet.create({
   hero: { alignItems: 'center', gap: 2, paddingVertical: 4 },
   heroName: { fontSize: 22, fontWeight: '800', color: colors.ink, textAlign: 'center' },
   heroRole: { fontSize: 13, color: colors.ink2, textAlign: 'center' },
-  section: { fontSize: 13, fontWeight: '700', color: colors.ink2, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  section: { fontSize: 16, fontWeight: '800', color: colors.ink, marginTop: 6 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   tile: { flexGrow: 1, flexBasis: '45%', minHeight: 104, borderRadius: radius.lg, padding: 16, justifyContent: 'space-between', borderWidth: 1, ...shadow.tile },
   tileTitle: { fontSize: 17, fontWeight: '800' },
+  primary: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.blue, borderRadius: radius.lg, padding: 18, ...shadow.hero },
+  primaryIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
+  primaryTitle: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  primarySub: { color: 'rgba(255,255,255,0.9)', fontSize: 13 },
+  primaryChevron: { color: '#fff', fontSize: 34, fontWeight: '300' },
+  vitrineTitle: { fontSize: 16, fontWeight: '800', color: colors.ink },
+  pill: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: 999 },
+  pillText: { fontWeight: '800', fontSize: 14 },
   kpi: { flexGrow: 1, flexBasis: '28%', minWidth: 96, gap: 2 },
   kpiLabel: { fontSize: 12, color: colors.ink2, fontWeight: '600' },
   kpiValue: { fontSize: 23, fontWeight: '800', color: colors.ink }

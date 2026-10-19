@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api.js';
@@ -5,6 +6,16 @@ import { Wordmark } from '../components/ui.jsx';
 
 const GREEN = '#00B368';
 const fcfa = (n) => `${Number(n ?? 0).toLocaleString('fr-FR')} FCFA`;
+
+/** Numéro WhatsApp international (chiffres seuls) ; un numéro local à 10 chiffres est supposé ivoirien. */
+function waNumber(phone) {
+  const raw = String(phone ?? '').trim();
+  let d = raw.replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  else if (!raw.startsWith('+') && d.length === 10 && d.startsWith('0')) d = `225${d}`;
+  return d;
+}
 
 /** Vitrine publique d'une boutique : articles disponibles, partageable sur les réseaux. */
 export function PublicShop() {
@@ -20,6 +31,24 @@ export function PublicShop() {
   const title = shop ? `Téléphones disponibles chez ${shop.name}` : 'Boutique gaRAN';
   const shareText = encodeURIComponent(`🛍️ ${title} — voir et réserver :`);
   const shareUrl = encodeURIComponent(url);
+  const wa = waNumber(shop?.phone);
+
+  useEffect(() => {
+    if (shop) document.title = `${shop.name} — téléphones disponibles | gaRAN`;
+  }, [shop]);
+
+  async function shareItem(it) {
+    const text = `📱 ${it.title} — ${fcfa(it.price)}, disponible chez ${shop.name}. Voir et réserver :`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: it.title, text, url });
+        return;
+      }
+    } catch {
+      return; // partage annulé
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, '_blank', 'noopener');
+  }
 
   function copyLink() {
     try {
@@ -75,13 +104,14 @@ export function PublicShop() {
                     {it.description ? <span className="muted small" style={{ flex: 1 }}>{it.description}</span> : null}
                     <a
                       className="btn"
-                      href={`https://wa.me/?text=${encodeURIComponent(`Bonjour, le ${it.title} à ${fcfa(it.price)} est-il toujours disponible ?`)}`}
+                      href={`https://wa.me/${wa}?text=${encodeURIComponent(`Bonjour, le ${it.title} à ${fcfa(it.price)} est-il toujours disponible ?`)}`}
                       target="_blank"
                       rel="noreferrer"
                       style={{ background: GREEN, borderColor: GREEN, textAlign: 'center', marginTop: 4 }}
                     >
-                      Réserver / Demander
+                      Réserver sur WhatsApp
                     </a>
+                    <button className="btn secondary" type="button" onClick={() => shareItem(it)}>Partager</button>
                   </div>
                 </article>
               ))}

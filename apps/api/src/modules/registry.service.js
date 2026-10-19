@@ -4,6 +4,7 @@ import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { randomCode } from '../lib/security.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../logger.js';
+import { salePaymentView } from './sale-payment.service.js';
 
 /* =====================================================================
  * Cœur métier du registre : entrée en stock, rachat, vente.
@@ -382,7 +383,8 @@ export async function getTransaction(id, scope) {
   }
   const { rows } = await query(`${TX_SELECT} WHERE ${where}`, params);
   if (!rows[0]) throw notFound('Opération introuvable');
-  return withCertificate(rows[0]);
+  const tx = withCertificate(rows[0]);
+  return { ...tx, payment: await salePaymentView(tx) };
 }
 
 export async function listTransactions(scope, f) {
@@ -489,19 +491,27 @@ export async function balanceSummary(scope, { from, to }) {
   }
   const { rows } = await query(
     `SELECT t.type, t.condition, COALESCE(t.payment_method, 'cash') AS payment_method,
+            (t.payment_method IS DISTINCT FROM 'orzayah' OR EXISTS (
+               SELECT 1 FROM orzayah_payments p
+               WHERE p.transaction_id = t.id AND p.purpose = 'sale' AND p.applied)) AS paid,
             count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
-     FROM transactions t WHERE ${cond.join(' AND ')} GROUP BY 1, 2, 3`,
+     FROM transactions t WHERE ${cond.join(' AND ')} GROUP BY 1, 2, 3, 4`,
     params
   );
   const byCondition = { new: { count: 0, amount: 0 }, like_new: { count: 0, amount: 0 }, used: { count: 0, amount: 0 } };
   const sales = { count: 0, amount: 0 };
   const purchases = { count: 0, amount: 0 };
+  const pending = { count: 0, amount: 0 };
   let digital = 0;
   let cash = 0;
   for (const r of rows) {
     const amount = Number(r.amount);
     const sign = r.type === 'sale' ? 1 : -1;
-    if (r.payment_method === 'orzayah') digital += sign * amount;
+    if (!r.paid) {
+      // Vente ORZAYAH pas encore encaissée : comptée à part, hors des soldes.
+      pending.count += r.count;
+      pending.amount += amount;
+    } else if (r.payment_method === 'orzayah') digital += sign * amount;
     else cash += sign * amount;
     if (r.type === 'sale') {
       sales.count += r.count;
@@ -519,6 +529,7 @@ export async function balanceSummary(scope, { from, to }) {
     to: to ?? null,
     sales: { ...sales, by_condition: byCondition },
     purchases,
+    pending,
     balances: { digital, cash, total: digital + cash }
   };
 }

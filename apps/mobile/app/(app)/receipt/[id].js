@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Platform, View, Text } from 'react-native';
+import { AppState, Linking, Platform, Share, View, Text } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SvgXml } from 'react-native-svg';
 import QRCode from 'qrcode';
 import * as Print from 'expo-print';
@@ -26,6 +26,7 @@ function receiptHtml(t, qrSvg, barcodeSvg) {
     ['État', LABELS.condition[t.condition]],
     ['Montant', fcfa(t.price)],
     ...(t.payment_method ? [['Paiement', PAY[t.payment_method] ?? t.payment_method]] : []),
+    ...(t.type === 'sale' && t.payment ? [['Statut du paiement', t.payment.paid ? 'Payé' : 'En attente de paiement']] : []),
     ...(t.person
       ? [[who, t.person.full_name], ['Pièce', `${LABELS.docType[t.person.id_doc_type] ?? t.person.id_doc_type} ${t.person.id_doc_number}`], ['Contacts', `${t.person.phone1} / ${t.person.phone2}`]]
       : []),
@@ -47,7 +48,7 @@ function receiptHtml(t, qrSvg, barcodeSvg) {
   </style></head><body>
   <div class="brand"><span class="ga">ga</span><span class="ran">RAN</span></div>
   <div class="muted">Registre digital des téléphones · IMEI</div>
-  <h1>${t.type === 'sale' ? 'Reçu de vente et certificat de propriété' : `Reçu — ${esc(LABELS.txType[t.type])}`}</h1>
+  <h1>${t.type === 'sale' ? (t.payment?.paid === false ? 'Reçu de vente — paiement en attente' : 'Reçu d’encaissement et certificat de propriété') : `Reçu — ${esc(LABELS.txType[t.type])}`}</h1>
   <div class="muted">N° ${esc(t.receipt_number)}</div>
   <div class="merchant">
     <strong>${esc(t.organization?.name ?? t.shop.name)}</strong><br>
@@ -63,13 +64,51 @@ function receiptHtml(t, qrSvg, barcodeSvg) {
 export default function Receipt() {
   const { id } = useLocalSearchParams();
   const { data: t, error, isLoading } = useQuery({ queryKey: ['transaction', id], queryFn: () => api.get(`/transactions/${id}`) });
+  const qc = useQueryClient();
   const [qr, setQr] = useState(null);
+  const [payQr, setPayQr] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState(null);
 
   useEffect(() => {
     if (t?.certificate_url) QRCode.toString(t.certificate_url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).then(setQr).catch(() => setQr(null));
   }, [t?.certificate_url]);
+
+  // Encaissement ORZAYAH : lien de paiement + suivi automatique jusqu'à confirmation.
+  const isOz = t?.type === 'sale' && t?.payment_method === 'orzayah';
+  const payQ = useQuery({
+    queryKey: ['sale-payment', id],
+    queryFn: () => api.get(`/transactions/${id}/payment`),
+    enabled: Boolean(isOz),
+    refetchInterval: (q) => (q.state.data?.status === 'pending' ? 4000 : false)
+  });
+  const pay = isOz ? (payQ.data ?? t.payment) : t?.payment;
+  const start = useMutation({
+    mutationFn: () => api.post(`/transactions/${id}/payment`),
+    onSuccess: (r) => qc.setQueryData(['sale-payment', id], r)
+  });
+  useEffect(() => {
+    if (pay?.paid && isOz) {
+      qc.invalidateQueries({ queryKey: ['transaction', id] });
+      qc.invalidateQueries({ queryKey: ['balance'] });
+    }
+  }, [pay?.paid]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (pay?.payment_url) QRCode.toString(pay.payment_url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).then(setPayQr).catch(() => setPayQr(null));
+    else setPayQr(null);
+  }, [pay?.payment_url]);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (stt) => { if (stt === 'active' && isOz) payQ.refetch(); });
+    return () => sub.remove();
+  }, [isOz]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function sharePayLink() {
+    if (!pay?.payment_url) return;
+    await Share.share({
+      message: `Paiement de ${fcfa(t.price)} à ${t.organization?.name ?? t.shop.name} (reçu ${t.receipt_number}) — payez en toute sécurité avec ORZAYAH :\n${pay.payment_url}`,
+      url: pay.payment_url
+    });
+  }
 
   const barcode = t ? code128Svg(t.device.imei1, { height: 64, scale: 1.7 }) : null;
 
@@ -79,11 +118,11 @@ export default function Receipt() {
     try {
       if (Platform.OS === 'web') {
         const w = window.open('', '_blank');
-        if (w) { w.document.write(receiptHtml(t, qr ?? '', barcode ?? '')); w.document.close(); w.focus(); w.print(); }
+        if (w) { w.document.write(receiptHtml({ ...t, payment: pay }, qr ?? '', barcode ?? '')); w.document.close(); w.focus(); w.print(); }
         setSharing(false);
         return;
       }
-      const { uri } = await Print.printToFileAsync({ html: receiptHtml(t, qr ?? '', barcode ?? '') });
+      const { uri } = await Print.printToFileAsync({ html: receiptHtml({ ...t, payment: pay }, qr ?? '', barcode ?? '') });
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Reçu ${t.receipt_number}`, UTI: 'com.adobe.pdf' });
       } else {
@@ -132,6 +171,34 @@ export default function Receipt() {
           {qr ? <SvgXml xml={qr} width={180} height={180} accessibilityLabel="QR code du certificat de propriété" /> : <Loading />}
           <Muted style={{ textAlign: 'center' }}>Certificat de propriété : le client garde la preuve de son achat, même s’il perd le carton.</Muted>
         </Card>
+      ) : null}
+
+      {isOz ? (
+        pay?.paid ? (
+          <Banner tone="ok" title="Paiement ORZAYAH encaissé ✓">Le montant de {fcfa(t.price)} est confirmé. Le reçu ci-dessous fait foi d’encaissement.</Banner>
+        ) : (
+          <Card style={{ alignItems: 'center', gap: 10 }}>
+            <Title>Encaissement ORZAYAH</Title>
+            {pay?.status === 'pending' && pay.payment_url ? (
+              <>
+                {payQr ? <SvgXml xml={payQr} width={190} height={190} accessibilityLabel="QR code de paiement ORZAYAH" /> : <Loading />}
+                <Muted style={{ textAlign: 'center' }}>L’acheteur scanne ce code (ou ouvre le lien) et paie {fcfa(t.price)}. Cet écran se met à jour dès la confirmation.</Muted>
+                <View style={{ flexDirection: 'row', gap: 10, alignSelf: 'stretch' }}>
+                  <Button title="Partager le lien" onPress={sharePayLink} style={{ flex: 1 }} />
+                  <Button title="Ouvrir" variant="secondary" onPress={() => Linking.openURL(pay.payment_url).catch(() => {})} style={{ flex: 1 }} />
+                </View>
+              </>
+            ) : (
+              <>
+                <Muted style={{ textAlign: 'center' }}>
+                  {pay?.status === 'failed' ? 'Le dernier paiement n’a pas abouti.' : 'Paiement ORZAYAH en attente.'} Générez le lien de {fcfa(t.price)} à faire régler par l’acheteur.
+                </Muted>
+                <ErrorBanner error={start.error} />
+                <Button title="Générer le lien de paiement" onPress={() => start.mutate()} loading={start.isPending} style={{ alignSelf: 'stretch' }} />
+              </>
+            )}
+          </Card>
+        )
       ) : null}
 
       <ErrorBanner error={shareError} />

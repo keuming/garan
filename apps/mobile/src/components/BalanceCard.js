@@ -71,7 +71,14 @@ export function BalanceCard() {
           <Amount value={d?.balances?.cash} />
         </View>
       </View>
-      <Text style={st.hint}>Espèces : ventes en espèces moins rachats. Digital : ventes payées par ORZAYAH.</Text>
+      <Text style={st.hint}>Espèces : ventes en espèces moins rachats. Digital : ventes ORZAYAH encaissées.</Text>
+      {Number(d?.pending?.count) > 0 ? (
+        <View style={st.pending}>
+          <Text style={st.pendingText}>
+            {num(d.pending.count)} {Number(d.pending.count) > 1 ? 'paiements ORZAYAH en attente' : 'paiement ORZAYAH en attente'} · {fcfa(d.pending.amount)}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={st.rule} />
 
@@ -110,6 +117,8 @@ const st = StyleSheet.create({
   two: { flexDirection: 'row', gap: 16 },
   half: { flex: 1, gap: 2 },
   hint: { color: 'rgba(255,255,255,0.5)', fontSize: 11 },
+  pending: { borderWidth: 1, borderColor: RED, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10 },
+  pendingText: { color: RED, fontSize: 12.5, fontWeight: '700' },
   rule: { height: 1, backgroundColor: LINE },
   section: { color: '#fff', fontSize: 13, fontWeight: '800' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },

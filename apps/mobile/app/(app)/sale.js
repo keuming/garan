@@ -224,7 +224,7 @@ export default function Sale() {
               </Pressable>
             </View>
             {payment === 'orzayah' ? (
-              <Muted>Le mode « ORZAYAH » est enregistré sur le reçu. L’encaissement se fait via votre compte/QR ORZAYAH.</Muted>
+              <Muted>Après validation, le reçu affiche un lien et un QR de paiement ORZAYAH à faire régler par l’acheteur. La vente passe en « payée » dès la confirmation.</Muted>
             ) : null}
           </Card>
 
