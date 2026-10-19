@@ -1,48 +1,64 @@
 import { config } from '../config.js';
+import { AppError } from './errors.js';
 import { logger } from '../logger.js';
 
 /**
- * Intégration ORZAYAH (paiement digital + solde).
- *
- * L'intégration est « préparée » : la couture est propre et centralisée ici.
- * Tant que ORZAYAH_API_URL n'est pas renseigné, le solde renvoie `configured:false`
- * et le paiement se contente de construire l'URL de redirection vers pay.orzayah.com.
- * Pour câbler réellement : définir ORZAYAH_API_URL (+ ORZAYAH_API_KEY) et, au besoin,
- * ajuster les paramètres de l'URL de checkout ci-dessous selon le contrat ORZAYAH réel.
+ * Client de l'API ORZAYAH (paiement digital).
+ * Contrat : base https://api.orzayah.com/api/public/v1, en-tête X-Api-Key,
+ * montants en CENTIMES (1 FCFA = 100), réponses { success, data } / { success, error }.
+ * La clé donne accès à de l'argent réel : elle reste côté serveur (variable Render).
  */
 
-/** Construit l'URL de la page de paiement ORZAYAH pour encaisser une vente. */
-export function buildCheckoutUrl({ orzayahNumber, amount, reference, label }) {
-  const base = config.ORZAYAH_PAY_URL.replace(/\/$/, '');
-  const params = new URLSearchParams();
-  if (orzayahNumber) params.set('merchant', orzayahNumber);
-  if (amount != null) params.set('amount', String(amount));
-  if (reference) params.set('ref', reference);
-  if (label) params.set('label', label);
-  params.set('return', `${config.PUBLIC_WEB_URL.replace(/\/$/, '')}/paiement/retour`);
-  return `${base}/?${params.toString()}`;
+export const OPERATORS = ['ORANGE', 'MTN', 'MOOV', 'WAVE'];
+
+const base = () => config.ORZAYAH_API_URL.replace(/\/$/, '');
+export const orzayahEnabled = () => Boolean(config.ORZAYAH_API_URL && config.ORZAYAH_API_KEY);
+
+export const toCentimes = (fcfa) => Math.round(Number(fcfa || 0) * 100);
+export const fromCentimes = (c) => Math.round(Number(c || 0) / 100);
+
+const FINAL = new Set(['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED']);
+export const isFinal = (s) => FINAL.has(s);
+export const isSuccess = (s) => s === 'SUCCESS';
+
+async function oz(path, { method = 'GET', body } = {}) {
+  if (!orzayahEnabled()) {
+    throw new AppError(503, 'ORZAYAH_NOT_CONFIGURED', 'Le paiement ORZAYAH n’est pas encore activé (clé API manquante).');
+  }
+  let res;
+  try {
+    res = await fetch(`${base()}${path}`, {
+      method,
+      headers: { 'X-Api-Key': config.ORZAYAH_API_KEY, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(20000)
+    });
+  } catch (err) {
+    logger.warn({ err: err.message, path }, 'ORZAYAH injoignable');
+    throw new AppError(502, 'ORZAYAH_UNREACHABLE', 'Service de paiement ORZAYAH indisponible. Réessayez dans un instant.');
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.success === false) {
+    const message = json.error?.message ?? `Erreur ORZAYAH (${res.status})`;
+    logger.warn({ status: res.status, message, path }, 'Erreur ORZAYAH');
+    throw new AppError(res.status === 409 ? 409 : 400, 'ORZAYAH_ERROR', message);
+  }
+  return json.data;
 }
 
-/**
- * Lit le solde ORZAYAH d'un marchand.
- * Renvoie { configured, balance, currency } ; `balance` est null tant que l'API n'est pas câblée.
- */
-export async function fetchBalance(orzayahNumber) {
-  if (!orzayahNumber) return { configured: false, balance: null, currency: 'XOF', reason: 'NO_NUMBER' };
-  if (!config.ORZAYAH_API_URL) return { configured: false, balance: null, currency: 'XOF', reason: 'API_NOT_WIRED' };
-  try {
-    const url = `${config.ORZAYAH_API_URL.replace(/\/$/, '')}/balance?account=${encodeURIComponent(orzayahNumber)}`;
-    const res = await fetch(url, {
-      headers: config.ORZAYAH_API_KEY ? { Authorization: `Bearer ${config.ORZAYAH_API_KEY}` } : {},
-      signal: AbortSignal.timeout(6000)
-    });
-    if (!res.ok) throw new Error(`ORZAYAH balance HTTP ${res.status}`);
-    const data = await res.json();
-    // On tolère plusieurs formes de réponse le temps de figer le contrat.
-    const raw = data.balance ?? data.data?.balance ?? data.amount ?? null;
-    return { configured: true, balance: raw == null ? null : Number(raw), currency: data.currency ?? 'XOF' };
-  } catch (err) {
-    logger.warn({ err: err.message }, 'Lecture du solde ORZAYAH indisponible');
-    return { configured: false, balance: null, currency: 'XOF', reason: 'UNAVAILABLE' };
-  }
+/** Encaisse : débite un compte Mobile Money vers le compte gaRAN (le payeur confirme sur son téléphone). */
+export const createDeposit = ({ operator, accountNumber, amount, idempotencyKey }) =>
+  oz('/deposits', { method: 'POST', body: { operator, accountNumber, amount, idempotencyKey } });
+
+/** Reverse : paie un marchand ORZAYAH depuis le solde gaRAN. */
+export const createMerchantPayment = ({ merchantId, amount, description, idempotencyKey }) =>
+  oz('/merchant-payments', { method: 'POST', body: { merchantId, amount, description, idempotencyKey } });
+
+/** Statut d'une opération (id ORZAYAH, référence publique ou idempotencyKey). */
+export const getOperation = (ref) => oz(`/transactions/${encodeURIComponent(ref)}`);
+
+/** Solde du compte partenaire gaRAN. */
+export async function getBalance() {
+  const b = await oz('/balance');
+  return { currency: b.currency ?? 'XOF', balance: fromCentimes(b.balance), balance_centimes: b.balance, is_frozen: Boolean(b.isFrozen) };
 }

@@ -6,6 +6,14 @@ import { hashSecret, revokeAllRefreshTokens } from '../lib/security.js';
 import { validate, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { audit } from '../lib/audit.js';
 import { requireOwner, requireUser } from '../middleware/auth.js';
+import { OPERATORS } from '../lib/orzayah.js';
+import { initiateSubscription, pollSubscription, PLAN_FCFA } from './subscription.service.js';
+
+const zSubscribe = z.object({
+  operator: z.enum(OPERATORS),
+  account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide'),
+  months: z.coerce.number().int().min(1).max(12).default(1)
+});
 
 /**
  * Espace superviseur (compte principal) : gestion des magasins et des comptes agents.
@@ -29,6 +37,25 @@ orgRouter.patch(
     res.json({ orzayah_number: rows[0].orzayah_number });
   }
 );
+
+/* ---------------------- Abonnement (paiement ORZAYAH) ---------------------- */
+
+// Tarif mensuel marchand
+orgRouter.get('/subscription/plan', (req, res) => res.json({ price_fcfa: PLAN_FCFA.organization, currency: 'XOF', period: 'month' }));
+
+// Initie le paiement de l'abonnement par dépôt Mobile Money (le marchand confirme sur son téléphone)
+orgRouter.post('/subscription/orzayah', validate({ body: zSubscribe }), async (req, res) => {
+  const r = await initiateSubscription({ subjectType: 'organization', subjectId: req.auth.orgId, months: req.v.body.months, operator: req.v.body.operator, accountNumber: req.v.body.account_number });
+  await audit(req, 'org.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
+  res.status(201).json(r);
+});
+
+// Suit le statut du paiement ; au succès l'abonnement est prolongé
+orgRouter.get('/subscription/orzayah/:id', validate({ params: z.object({ id: zUuid }) }), async (req, res) => {
+  const r = await pollSubscription(req.v.params.id, { subjectType: 'organization', subjectId: req.auth.orgId });
+  const org = (await query(`SELECT status, subscription_expires_at FROM organizations WHERE id = $1`, [req.auth.orgId])).rows[0];
+  res.json({ ...r, organization: org });
+});
 
 /* ------------------------------- Magasins ------------------------------- */
 

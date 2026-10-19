@@ -18,6 +18,8 @@ import {
 } from '../lib/security.js';
 import { storage } from '../lib/storage.js';
 import { audit } from '../lib/audit.js';
+import { OPERATORS } from '../lib/orzayah.js';
+import { initiateSubscription, pollSubscription, PLAN_FCFA } from './subscription.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { verifyAccessToken } from '../lib/security.js';
@@ -35,7 +37,7 @@ const accessToken = (c) => signAccessToken({ sub: c.id, typ: 'consumer' });
 
 async function loadConsumer(id) {
   const { rows } = await query(
-    `SELECT id, full_name, phone, email, status, created_at FROM consumers WHERE id = $1`,
+    `SELECT id, full_name, phone, email, status, subscription_expires_at, created_at FROM consumers WHERE id = $1`,
     [id]
   );
   if (!rows[0]) throw notFound('Compte introuvable');
@@ -363,6 +365,31 @@ consumerRouter.post(
     });
     await audit(req, 'consumer.theft_reported', { entity: 'theft_report', entityId: result, meta: { kind: req.v.body.kind } });
     res.status(201).json({ reference: result, status: 'confirmed', message: 'Téléphone signalé dans tout le réseau gaRAN. Rapprochez-vous de la police avec votre reçu.' });
+  }
+);
+
+/* ---------------------- Abonnement (paiement ORZAYAH) ---------------------- */
+
+consumerRouter.get('/subscription/plan', requireConsumer, (req, res) => res.json({ price_fcfa: PLAN_FCFA.consumer, currency: 'XOF', period: 'month' }));
+
+consumerRouter.post(
+  '/subscription/orzayah',
+  requireConsumer,
+  validate({ body: z.object({ operator: z.enum(OPERATORS), account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide'), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
+  async (req, res) => {
+    const r = await initiateSubscription({ subjectType: 'consumer', subjectId: req.auth.sub, months: req.v.body.months, operator: req.v.body.operator, accountNumber: req.v.body.account_number });
+    await audit(req, 'consumer.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
+    res.status(201).json(r);
+  }
+);
+
+consumerRouter.get(
+  '/subscription/orzayah/:id',
+  requireConsumer,
+  validate({ params: z.object({ id: zUuid }) }),
+  async (req, res) => {
+    const r = await pollSubscription(req.v.params.id, { subjectType: 'consumer', subjectId: req.auth.sub });
+    res.json({ ...r, consumer: await loadConsumer(req.auth.sub) });
   }
 );
 

@@ -87,6 +87,7 @@ export default function ConsumerHome() {
           <Tile title="Linker mon téléphone" sub="Enregistrer et protéger" icon="🔗" tone="green" onPress={() => router.push('/link')} />
           <Tile title="Vérifier un IMEI" sub="Avant un achat d’occasion" icon="🔍" tone="navy" onPress={() => router.push('/check')} />
           <Tile title="Téléphones volés" sub="Registre réseau gaRAN" icon="⛔" tone="blood" onPress={() => router.push('/stolen')} />
+          <Tile title="Pourquoi gaRAN ?" sub="Sécurité, avantages, abonnement" icon="🛡️" tone="white" onPress={() => router.push('/why')} />
           <Tile title="Mon compte" sub="Profil et sécurité" icon="👤" tone="white" onPress={() => router.push('/account')} />
         </View>
 

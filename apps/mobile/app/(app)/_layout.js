@@ -24,6 +24,8 @@ export default function AppLayout() {
       <Stack.Screen name="check" options={{ title: 'Vérifier un IMEI' }} />
       <Stack.Screen name="report-theft" options={{ title: 'Déclarer un vol' }} />
       <Stack.Screen name="stolen" options={{ title: 'Téléphones volés' }} />
+      <Stack.Screen name="subscribe" options={{ title: 'Abonnement' }} />
+      <Stack.Screen name="why" options={{ title: 'Pourquoi gaRAN ?' }} />
       <Stack.Screen name="receipt/[id]" options={{ title: 'Reçu' }} />
       <Stack.Screen name="history" options={{ title: 'Historique' }} />
       <Stack.Screen name="stats" options={{ title: 'États des ventes' }} />

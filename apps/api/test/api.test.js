@@ -368,15 +368,10 @@ test('back-office : connexion, enquête IMEI, pièce, paiement', async () => {
  * =================================================================== */
 const IMEI_E = imei('35693803564390');
 
-test('profil marchand : numéro ORZAYAH et solde', async () => {
+test('profil marchand : identifiant ORZAYAH', async () => {
   const prof = await api().patch('/api/v1/org/profile').set(bearer(ctx.a.access_token)).send({ orzayah_number: '0700000000' });
   assert.equal(prof.status, 200);
   assert.equal(prof.body.orzayah_number, '0700000000');
-
-  const bal = await api().get('/api/v1/org/orzayah/balance').set(bearer(ctx.a.access_token));
-  assert.equal(bal.status, 200);
-  assert.equal(bal.body.configured, false); // API non câblée
-  assert.equal(bal.body.orzayah_number, '0700000000');
 });
 
 test('disponibilité : création, liste et vitrine publique', async () => {
@@ -422,12 +417,14 @@ test('vente liée à un article : décrément du stock + mode de paiement', asyn
   assert.equal(l.quantity, 2); // décrémenté de 3 à 2
 });
 
-test('checkout ORZAYAH : URL de paiement construite', async () => {
-  const co = await api().get('/api/v1/org/orzayah/checkout?amount=85000&reference=GR-TEST').set(bearer(ctx.a.access_token));
-  assert.equal(co.status, 200);
-  assert.match(co.body.url, /^https:\/\/pay\.orzayah\.com/);
-  assert.match(co.body.url, /merchant=0700000000/);
-  assert.match(co.body.url, /amount=85000/);
+test('abonnement marchand : garde-fou sans clé ORZAYAH', async () => {
+  // Sans ORZAYAH_API_URL/KEY configurés, l'initiation est refusée proprement (503).
+  const r = await api()
+    .post('/api/v1/org/subscription/orzayah')
+    .set(bearer(ctx.a.access_token))
+    .send({ operator: 'WAVE', account_number: '0700000000', months: 1 });
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.body.error.code, 'ORZAYAH_NOT_CONFIGURED');
 });
 
 /* ===================================================================
@@ -463,4 +460,27 @@ test('marchand : déclaration de vol d\'un téléphone en stock + registre publi
   // Et la vérification publique le signale désormais
   const check = await api().get(`/api/v1/public/imei/${IMEI_F}`);
   assert.equal(check.body.result, 'reported');
+});
+
+/* ===================================================================
+ * Abonnement ORZAYAH — câblage (clé non configurée en test → 503 propre)
+ * =================================================================== */
+test('abonnement : tarif marchand et garde-fou sans clé ORZAYAH', async () => {
+  const plan = await api().get('/api/v1/org/subscription/plan').set(bearer(ctx.a.access_token));
+  assert.equal(plan.status, 200);
+  assert.equal(plan.body.price_fcfa, 1000);
+
+  // Sans clé ORZAYAH configurée, l'initiation renvoie une erreur métier claire (503), pas un crash.
+  const sub = await api()
+    .post('/api/v1/org/subscription/orzayah')
+    .set(bearer(ctx.a.access_token))
+    .send({ operator: 'WAVE', account_number: '0700000000', months: 1 });
+  assert.equal(sub.status, 503);
+  assert.equal(sub.body.error.code, 'ORZAYAH_NOT_CONFIGURED');
+
+  // Le solde admin répond configured:false proprement
+  const t = (await api().post('/api/v1/auth/admin/login').send({ email: 'ADMIN@garan.ci', password: 'MotDePasse!2026' })).body.access_token;
+  const bal = await api().get('/api/v1/admin/orzayah/balance').set(bearer(t));
+  assert.equal(bal.status, 200);
+  assert.equal(bal.body.configured, false);
 });

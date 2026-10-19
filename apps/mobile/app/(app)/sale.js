@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BrandModelPicker } from '../../src/components/BrandModelPicker';
@@ -88,7 +88,7 @@ export default function Sale() {
   const step2Ok = docReady && person.full_name.trim() && person.phone1 && person.phone2 && photosOk;
 
   const shopOk = shopId || !isOwner || activeShops.length === 1;
-  const step3Ok = price !== '' && shopOk && (payment !== 'orzayah' || orzayahNumber);
+  const step3Ok = price !== '' && shopOk;
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -106,13 +106,6 @@ export default function Sale() {
         listing_id: listing?.id
       };
       const tx = await api.post('/transactions/sales', body);
-      // Paiement ORZAYAH : on ouvre la page de paiement avec le montant pré-rempli.
-      if (payment === 'orzayah') {
-        try {
-          const { url } = await api.get('/org/orzayah/checkout', { amount: Number(price || 0), reference: tx.receipt_number, label: `Vente ${tx.device?.brand ?? ''} ${tx.device?.model ?? ''}`.trim() });
-          if (url) await Linking.openURL(url);
-        } catch { /* le reçu reste la preuve ; le paiement peut être fait à part */ }
-      }
       return tx;
     },
     onSuccess: (tx) => {
@@ -230,10 +223,8 @@ export default function Sale() {
                 <Text style={[st.payTitle, payment === 'orzayah' && { color: '#fff' }]}>ORZAYAH</Text>
               </Pressable>
             </View>
-            {payment === 'orzayah' && !orzayahNumber ? (
-              <Banner tone="warn">Renseignez d’abord votre numéro ORZAYAH dans « Mon compte » pour encaisser en paiement digital.</Banner>
-            ) : payment === 'orzayah' ? (
-              <Muted>La page de paiement ORZAYAH s’ouvrira avec le montant pré-rempli (compte {orzayahNumber}).</Muted>
+            {payment === 'orzayah' ? (
+              <Muted>Le mode « ORZAYAH » est enregistré sur le reçu. L’encaissement se fait via votre compte/QR ORZAYAH.</Muted>
             ) : null}
           </Card>
 

@@ -36,6 +36,9 @@ export default function Welcome() {
       </View>
       <Text style={{ fontWeight: '700', fontSize: 16, color: colors.ink, marginTop: 8 }}>Je suis…</Text>
       {PROFILES.map((p) => <Card key={p.key} p={p} />)}
+      <Pressable accessibilityRole="button" onPress={() => router.push('/why')} style={({ pressed }) => [st.why, pressed && { opacity: 0.85 }]}>
+        <Text style={st.whyText}>🛡️  Pourquoi gaRAN ? Découvrir la sécurité et les avantages</Text>
+      </Pressable>
     </Screen>
   );
 }
@@ -44,5 +47,7 @@ const st = StyleSheet.create({
   card: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: '#fff', borderWidth: 1.5, borderRadius: radius.lg, padding: 18 },
   dot: { width: 14, height: 14, borderRadius: 7 },
   title: { fontSize: 18, fontWeight: '800', color: colors.ink },
-  desc: { fontSize: 13, color: colors.ink2, marginTop: 2 }
+  desc: { fontSize: 13, color: colors.ink2, marginTop: 2 },
+  why: { alignItems: 'center', paddingVertical: 14, marginTop: 4 },
+  whyText: { color: colors.green, fontWeight: '700', fontSize: 14, textAlign: 'center' }
 });

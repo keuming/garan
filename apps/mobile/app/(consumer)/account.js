@@ -5,6 +5,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Banner, Button, Card, ErrorBanner, Input, Muted, Row, Screen, Title } from '../../src/components/ui';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
+import { date } from '../../src/lib/format';
 
 export default function ConsumerAccount() {
   const { consumer, reloadConsumer, logout } = useAuth();
@@ -45,6 +46,12 @@ export default function ConsumerAccount() {
         <Muted>Identifiant de connexion</Muted>
         <Row label="Téléphone" value={consumer?.phone ?? '—'} />
         <Muted>Le numéro de téléphone sert d’identifiant et ne peut pas être modifié.</Muted>
+      </Card>
+
+      <Card>
+        <Muted>Abonnement gaRAN</Muted>
+        <Row label="Statut" value={consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date() ? `Actif jusqu’au ${date(consumer.subscription_expires_at)}` : 'Non abonné'} />
+        <Button title="S’abonner / Renouveler (100 FCFA/mois)" onPress={() => router.push('/subscribe')} />
       </Card>
 
       <Card>

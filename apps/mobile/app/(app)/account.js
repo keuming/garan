@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Alert } from 'react-native';
+import { router } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { Banner, Button, Card, ErrorBanner, Input, Muted, Row, Screen, Title } from '../../src/components/ui';
@@ -48,11 +49,12 @@ export default function Account() {
 
       {isOwner ? (
         <Card>
-          <Muted>Paiement digital ORZAYAH</Muted>
+          <Muted>Abonnement & paiement ORZAYAH</Muted>
+          <Button title="Gérer / payer mon abonnement" onPress={() => router.push('/subscribe')} />
           <ErrorBanner error={saveOrzayah.error} />
-          <Input label="Numéro de compte ORZAYAH" value={orzayah} onChangeText={(t) => setOrzayah(t.replace(/\s/g, ''))} keyboardType="phone-pad" placeholder="Ex. 0700000000" />
-          <Muted>Sert à encaisser les ventes en paiement digital et à afficher votre solde sur l’accueil.</Muted>
-          <Button title="Enregistrer le numéro ORZAYAH" onPress={() => saveOrzayah.mutate()} loading={saveOrzayah.isPending} />
+          <Input label="Identifiant marchand ORZAYAH" value={orzayah} onChangeText={(t) => setOrzayah(t.replace(/\s/g, ''))} keyboardType="phone-pad" placeholder="Ex. 0700000000" />
+          <Muted>Sert à recevoir les paiements digitaux de vos ventes sur votre compte ORZAYAH.</Muted>
+          <Button title="Enregistrer l’identifiant ORZAYAH" variant="secondary" onPress={() => saveOrzayah.mutate()} loading={saveOrzayah.isPending} />
         </Card>
       ) : null}
 

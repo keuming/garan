@@ -32,23 +32,24 @@ function Kpi({ label, value, hint }) {
   );
 }
 
-/* --------------------------- Solde ORZAYAH --------------------------- */
-function OrzayahBalance() {
-  const q = useQuery({ queryKey: ['orzayah', 'balance'], queryFn: () => api.get('/org/orzayah/balance'), staleTime: 60_000 });
-  const d = q.data;
-  const ready = d?.configured && d?.balance != null;
+/* --------------------------- Abonnement --------------------------- */
+function SubscriptionCard() {
+  const { user } = useAuth();
+  const org = user?.organization;
+  const exp = org?.subscription_expires_at ? new Date(org.subscription_expires_at) : null;
+  const daysLeft = exp ? Math.ceil((exp - new Date()) / 86_400_000) : null;
+  const expired = daysLeft !== null && daysLeft <= 0;
+  const value = expired ? 'Abonnement expiré' : org?.status === 'trial' ? 'Période d’essai' : daysLeft !== null ? `${daysLeft} j restants` : 'Abonnement';
   return (
-    <Pressable accessibilityRole="button" onPress={() => router.push('/account')} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
-      <View style={st.balance}>
+    <Pressable accessibilityRole="button" onPress={() => router.push('/subscribe')} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
+      <View style={[st.balance, expired && { backgroundColor: colors.blood }]}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={st.balanceLabel}>Solde ORZAYAH</Text>
-          <Text style={st.balanceTag}>paiement digital</Text>
+          <Text style={[st.balanceLabel, expired && { color: '#fff' }]}>Abonnement gaRAN</Text>
+          <Text style={[st.balanceTag, expired && { color: 'rgba(255,255,255,0.85)' }]}>paiement ORZAYAH</Text>
         </View>
-        <Text style={st.balanceValue} numberOfLines={1} adjustsFontSizeToFit>
-          {q.isLoading ? '—' : ready ? fcfa(d.balance) : d?.orzayah_number ? 'Indisponible' : 'Non configuré'}
-        </Text>
-        <Text style={st.balanceHint}>
-          {ready ? `Compte ${d.orzayah_number}` : d?.orzayah_number ? 'Solde bientôt disponible' : 'Touchez pour renseigner votre numéro ORZAYAH'}
+        <Text style={[st.balanceValue, expired && { color: '#fff', fontSize: 22 }]} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+        <Text style={[st.balanceHint, expired && { color: 'rgba(255,255,255,0.9)' }]}>
+          {expired ? 'Touchez pour renouveler (1 000 FCFA/mois)' : exp ? `Échéance le ${date(exp)} · touchez pour renouveler` : 'Touchez pour vous abonner (1 000 FCFA/mois)'}
         </Text>
       </View>
     </Pressable>
@@ -67,7 +68,7 @@ function SupervisorHome() {
         <Text style={st.heroRole}>Super marchand · {user?.full_name}</Text>
       </View>
       <UpdateBanner />
-      <OrzayahBalance />
+      <SubscriptionCard />
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
         <Kpi label="Sous-marchands" value={num(ov.data?.sub_merchants)} />
         <Kpi label="Ventes réseau (mois)" value={num(ov.data?.sale?.count)} hint={fcfa(ov.data?.sale?.amount)} />
@@ -114,7 +115,7 @@ function MerchantHome() {
         <Banner tone="warn" title={org.status === 'trial' ? 'Fin de la période d’essai' : 'Abonnement bientôt expiré'}>Échéance le {date(exp)} ({daysLeft} j).</Banner>
       ) : null}
 
-      <OrzayahBalance />
+      <SubscriptionCard />
 
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
         <Kpi label="Ventes du jour" value={num(sToday.data?.total_count)} hint={fcfa(sToday.data?.total_amount)} />
@@ -138,6 +139,7 @@ function MerchantHome() {
         <Tile title="Historique" sub="Toutes les opérations" icon="🧾" tone="white" onPress={() => router.push('/history')} />
         <Tile title="États" sub="Par marque et modèle" icon="📊" tone="white" onPress={() => router.push('/stats')} />
         {isOwner ? <Tile title="Comptes vendeurs" sub="Accès de la boutique" icon="👥" tone="white" onPress={() => router.push('/users')} /> : null}
+        <Tile title="Pourquoi gaRAN ?" sub="Risques, avantages, abonnement" icon="🛡️" tone="white" onPress={() => router.push('/why')} />
         <Tile title="Mon compte" icon="👤" tone="white" onPress={() => router.push('/account')} />
       </View>
     </Screen>

@@ -8,6 +8,7 @@ import { storage } from '../lib/storage.js';
 import { audit } from '../lib/audit.js';
 import { validate, zEmail, zImei, zPagination, zText, zUuid } from '../lib/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { getBalance, orzayahEnabled } from '../lib/orzayah.js';
 
 /**
  * Back-office du promoteur gaRAN.
@@ -24,6 +25,16 @@ const INVESTIGATORS = ['superadmin', 'admin', 'police'];
 const paginate = (page, limit) => `LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
 
 adminRouter.get('/me', requireAdmin(...ALL), (req, res) => res.json({ admin: req.admin }));
+
+// Solde du compte ORZAYAH de gaRAN (encaissements des abonnements / ventes)
+adminRouter.get('/orzayah/balance', requireAdmin(...STAFF), async (req, res) => {
+  if (!orzayahEnabled()) return res.json({ configured: false, reason: 'API_NOT_WIRED' });
+  try {
+    res.json({ configured: true, ...(await getBalance()) });
+  } catch (err) {
+    res.json({ configured: false, reason: err.code ?? 'UNAVAILABLE', message: err.message });
+  }
+});
 
 /* ------------------------------ Mon profil ------------------------------ */
 

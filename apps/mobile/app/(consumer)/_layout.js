@@ -21,6 +21,8 @@ export default function ConsumerLayout() {
       <Stack.Screen name="device/[id]" options={{ title: 'Mon téléphone' }} />
       <Stack.Screen name="check" options={{ title: 'Vérifier un IMEI' }} />
       <Stack.Screen name="stolen" options={{ title: 'Téléphones volés' }} />
+      <Stack.Screen name="subscribe" options={{ title: 'Abonnement' }} />
+      <Stack.Screen name="why" options={{ title: 'Pourquoi gaRAN ?' }} />
       <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
     </Stack>
   );
