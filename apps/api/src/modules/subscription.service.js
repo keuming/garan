@@ -78,6 +78,10 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
   try {
     op = await getOperation(row.reference ?? row.idempotency_key);
   } catch (err) {
+    if (row.operator !== 'LINK' && (err.status === 404 || /introuvable/i.test(err.message || ''))) {
+      await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, 'Ancien paiement introuvable chez ORZAYAH']);
+      return { status: 'FAILED', applied: false, expires_at: null };
+    }
     logger.warn({ err: err.message, paymentId }, 'ORZAYAH : relecture du statut impossible');
     return { status: row.status, applied: false, expires_at: null, pending: true };
   }
