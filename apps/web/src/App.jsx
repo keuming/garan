@@ -17,6 +17,7 @@ import { Consumers } from './pages/Consumers.jsx';
 import { ConsumerDetail } from './pages/ConsumerDetail.jsx';
 import { PublicCertificate } from './pages/PublicCertificate.jsx';
 import { PublicCheck } from './pages/PublicCheck.jsx';
+import { PublicShop } from './pages/PublicShop.jsx';
 
 const READERS = ['superadmin', 'admin', 'support'];
 const INVESTIGATORS = ['superadmin', 'admin', 'police'];
@@ -36,6 +37,7 @@ export function App() {
       {/* Pages publiques */}
       <Route path="/v/:code" element={<PublicCertificate />} />
       <Route path="/verifier" element={<PublicCheck />} />
+      <Route path="/boutique/:shopId" element={<PublicShop />} />
       <Route path="/login" element={<Login />} />
 
       {/* Back-office */}

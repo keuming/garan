@@ -362,3 +362,70 @@ test('back-office : connexion, enquête IMEI, pièce, paiement', async () => {
   const audit = await api().get('/api/v1/admin/audit-logs?action=admin.document').set(bearer(t));
   assert.equal(audit.body.items.length, 1);
 });
+
+/* ===================================================================
+ * Disponibilité (vitrine), paiement ORZAYAH et décrément à la vente
+ * =================================================================== */
+const IMEI_E = imei('35693803564390');
+
+test('profil marchand : numéro ORZAYAH et solde', async () => {
+  const prof = await api().patch('/api/v1/org/profile').set(bearer(ctx.a.access_token)).send({ orzayah_number: '0700000000' });
+  assert.equal(prof.status, 200);
+  assert.equal(prof.body.orzayah_number, '0700000000');
+
+  const bal = await api().get('/api/v1/org/orzayah/balance').set(bearer(ctx.a.access_token));
+  assert.equal(bal.status, 200);
+  assert.equal(bal.body.configured, false); // API non câblée
+  assert.equal(bal.body.orzayah_number, '0700000000');
+});
+
+test('disponibilité : création, liste et vitrine publique', async () => {
+  const shopId = ctx.a.user.shops[0].id;
+  const create = await api()
+    .post('/api/v1/org/listings')
+    .set(bearer(ctx.a.access_token))
+    .send({ brand_id: ctx.samsung.id, model_id: ctx.a15.id, description: 'Neuf sous blister', price: 85000, quantity: 3 });
+  assert.equal(create.status, 201, JSON.stringify(create.body));
+  assert.equal(create.body.quantity, 3);
+  assert.equal(create.body.title, 'Samsung Galaxy A15');
+  assert.equal(create.body.price, 85000);
+  ctx.listing = create.body;
+
+  const avail = await api().get('/api/v1/org/listings?available=1').set(bearer(ctx.a.access_token));
+  assert.ok(avail.body.items.some((l) => l.id === ctx.listing.id));
+
+  const vitrine = await api().get(`/api/v1/public/shops/${shopId}`);
+  assert.equal(vitrine.status, 200);
+  assert.equal(vitrine.body.shop.id, shopId);
+  assert.ok(vitrine.body.items.some((l) => l.id === ctx.listing.id && l.quantity === 3));
+});
+
+test('vente liée à un article : décrément du stock + mode de paiement', async () => {
+  const buyer = await person(ctx.a.access_token, 'Awa Traoré', 'CI0077777', ['0909090909', '0808080808']);
+  const sale = await api()
+    .post('/api/v1/transactions/sales')
+    .set(bearer(ctx.a.access_token))
+    .send({
+      device: { imei1: IMEI_E, brand_id: ctx.samsung.id, model_id: ctx.a15.id },
+      person: buyer,
+      condition: 'new',
+      price: 85000,
+      payment_method: 'orzayah',
+      listing_id: ctx.listing.id
+    });
+  assert.equal(sale.status, 201, JSON.stringify(sale.body));
+  assert.equal(sale.body.payment_method, 'orzayah');
+  assert.equal(sale.body.organization.name, 'Boutique Alpha');
+
+  const after = await api().get('/api/v1/org/listings').set(bearer(ctx.a.access_token));
+  const l = after.body.items.find((x) => x.id === ctx.listing.id);
+  assert.equal(l.quantity, 2); // décrémenté de 3 à 2
+});
+
+test('checkout ORZAYAH : URL de paiement construite', async () => {
+  const co = await api().get('/api/v1/org/orzayah/checkout?amount=85000&reference=GR-TEST').set(bearer(ctx.a.access_token));
+  assert.equal(co.status, 200);
+  assert.match(co.body.url, /^https:\/\/pay\.orzayah\.com/);
+  assert.match(co.body.url, /merchant=0700000000/);
+  assert.match(co.body.url, /amount=85000/);
+});

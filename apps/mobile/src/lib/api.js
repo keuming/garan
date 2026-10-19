@@ -104,7 +104,17 @@ export const api = {
   get: (path, params) => request(path + qs(params)),
   post: (path, body) => request(path, { method: 'POST', body: body ?? {} }),
   patch: (path, body) => request(path, { method: 'PATCH', body }),
+  del: (path) => request(path, { method: 'DELETE' }),
   publicPost: (path, body) => request(path, { method: 'POST', body, auth: false }),
   uploadIdPhoto: (uri) => uploadTo('/uploads/id-document', uri),
-  uploadConsumerDoc: (uri) => uploadTo('/consumer/uploads', uri)
+  uploadConsumerDoc: (uri) => uploadTo('/consumer/uploads', uri),
+  uploadListingPhoto: (uri) => uploadTo('/org/listings/photo', uri)
+};
+
+/** URL absolue d'une photo d'article servie publiquement par l'API. */
+export const mediaUrl = (key) => (key ? `${BASE}/public/media?key=${encodeURIComponent(key)}` : null);
+/** URL publique de la vitrine d'une boutique (partage réseaux). */
+export const shopPublicUrl = (shopId) => {
+  const web = String(Constants.expoConfig?.extra?.publicWebUrl ?? '').replace(/\/$/, '');
+  return `${web}/boutique/${shopId}`;
 };

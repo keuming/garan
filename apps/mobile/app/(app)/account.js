@@ -8,9 +8,14 @@ import { useAuth } from '../../src/lib/auth';
 import { date, LABELS } from '../../src/lib/format';
 
 export default function Account() {
-  const { user, logout } = useAuth();
+  const { user, logout, isOwner, reloadUser } = useAuth();
   const [cur, setCur] = useState('');
   const [next, setNext] = useState('');
+  const [orzayah, setOrzayah] = useState(user?.organization?.orzayah_number ?? '');
+  const saveOrzayah = useMutation({
+    mutationFn: () => api.patch('/org/profile', { orzayah_number: orzayah || null }),
+    onSuccess: async () => { await reloadUser?.(); Alert.alert('Enregistré', 'Votre numéro ORZAYAH est à jour.'); }
+  });
   const change = useMutation({
     mutationFn: () => api.post('/auth/me/pin', { current_pin: cur, new_pin: next }),
     onSuccess: () => {
@@ -40,6 +45,16 @@ export default function Account() {
         <Input label="Nouveau code PIN" value={next} onChangeText={digits(setNext)} keyboardType="number-pad" secureTextEntry maxLength={4} />
         <Button title="Modifier" onPress={() => change.mutate()} loading={change.isPending} disabled={cur.length !== 4 || next.length !== 4} />
       </Card>
+
+      {isOwner ? (
+        <Card>
+          <Muted>Paiement digital ORZAYAH</Muted>
+          <ErrorBanner error={saveOrzayah.error} />
+          <Input label="Numéro de compte ORZAYAH" value={orzayah} onChangeText={(t) => setOrzayah(t.replace(/\s/g, ''))} keyboardType="phone-pad" placeholder="Ex. 0700000000" />
+          <Muted>Sert à encaisser les ventes en paiement digital et à afficher votre solde sur l’accueil.</Muted>
+          <Button title="Enregistrer le numéro ORZAYAH" onPress={() => saveOrzayah.mutate()} loading={saveOrzayah.isPending} />
+        </Card>
+      ) : null}
 
       <Banner tone="info">Assistance gaRAN : contactez votre conseiller pour le renouvellement de l’abonnement ou l’ajout de magasins.</Banner>
       <Button title="Se déconnecter" variant="danger" onPress={logout} />

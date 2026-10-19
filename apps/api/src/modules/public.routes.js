@@ -1,9 +1,12 @@
+import path from 'node:path';
 import { Router } from 'express';
 import { z } from 'zod';
 import { query, withTransaction } from '../db.js';
 import { notFound } from '../lib/errors.js';
 import { maskImei } from '../lib/imei.js';
 import { audit } from '../lib/audit.js';
+import { storage } from '../lib/storage.js';
+import { photoUrl } from './listings.routes.js';
 import { validate, zDocNumber, zDocType, zImei, zPhone, zText } from '../lib/validate.js';
 import { publicLimiter, reportLimiter } from '../middleware/rateLimit.js';
 
@@ -76,6 +79,61 @@ publicRouter.get(
       shop: { name: t.shop_name, city: t.shop_city, district: t.shop_district },
       buyer: maskName(t.full_name),
       is_current_owner: t.owner_type === 'person' && t.owner_person_id === t.person_id
+    });
+  }
+);
+
+/* ----------------------- Vitrine publique boutique ---------------------- */
+
+// Photo d'un article de disponibilité (publique, mise en cache).
+publicRouter.get(
+  '/media',
+  publicLimiter,
+  validate({ query: z.object({ key: z.string().regex(/^listings\/[0-9a-f-]{36}\/\d{6}\/[0-9a-f-]{36}\.(jpg|png|webp)$/) }) }),
+  async (req, res) => {
+    const stream = await storage.getStream(req.v.query.key);
+    const ext = path.extname(req.v.query.key).slice(1);
+    const types = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+    res.set({ 'Content-Type': types[ext] ?? 'application/octet-stream', 'Cache-Control': 'public, max-age=86400', 'Content-Disposition': 'inline' });
+    stream.pipe(res);
+  }
+);
+
+// Vitrine d'une boutique : articles disponibles + contact (pour le partage sur les réseaux).
+publicRouter.get(
+  '/shops/:id',
+  publicLimiter,
+  validate({ params: z.object({ id: z.string().uuid() }) }),
+  async (req, res) => {
+    const shop = (
+      await query(
+        `SELECT s.id, s.name, s.phone, s.city, s.district, o.name AS org_name
+         FROM shops s JOIN organizations o ON o.id = s.organization_id
+         WHERE s.id = $1 AND s.status = 'active'`,
+        [req.v.params.id]
+      )
+    ).rows[0];
+    if (!shop) throw notFound('Boutique introuvable');
+    const { rows } = await query(
+      `SELECT l.id, l.title, l.description, l.price, l.quantity, l.photo_key,
+              b.name AS brand, COALESCE(m.name, l.model_label) AS model
+       FROM listings l LEFT JOIN brands b ON b.id = l.brand_id LEFT JOIN models m ON m.id = l.model_id
+       WHERE l.shop_id = $1 AND l.status = 'active' AND l.quantity > 0
+       ORDER BY l.created_at DESC`,
+      [req.v.params.id]
+    );
+    res.json({
+      shop: { id: shop.id, name: shop.name, phone: shop.phone, city: shop.city, district: shop.district, org_name: shop.org_name },
+      items: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        brand: r.brand,
+        model: r.model,
+        description: r.description,
+        price: Number(r.price),
+        quantity: r.quantity,
+        photo_url: photoUrl(r.photo_key)
+      }))
     });
   }
 );

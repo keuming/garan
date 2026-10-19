@@ -17,7 +17,10 @@ export default function AppLayout() {
       }}
     >
       <Stack.Screen name="home" options={{ title: 'gaRAN' }} />
+      <Stack.Screen name="sale" options={{ title: 'Vente' }} />
       <Stack.Screen name="operation" options={{ title: 'Opération' }} />
+      <Stack.Screen name="availability" options={{ title: 'Disponibilité' }} />
+      <Stack.Screen name="listing-form" options={{ title: 'Article' }} />
       <Stack.Screen name="check" options={{ title: 'Vérifier un IMEI' }} />
       <Stack.Screen name="receipt/[id]" options={{ title: 'Reçu' }} />
       <Stack.Screen name="history" options={{ title: 'Historique' }} />

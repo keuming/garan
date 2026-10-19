@@ -11,6 +11,8 @@ import { authRouter } from './modules/auth.routes.js';
 import { catalogRouter } from './modules/catalog.routes.js';
 import { registryRouter } from './modules/registry.routes.js';
 import { orgRouter } from './modules/org.routes.js';
+import { listingsRouter } from './modules/listings.routes.js';
+import { orzayahRouter } from './modules/orzayah.routes.js';
 import { publicRouter } from './modules/public.routes.js';
 import { adminRouter } from './modules/admin.routes.js';
 import { adminClientsRouter } from './modules/admin-clients.routes.js';
@@ -46,6 +48,8 @@ export function createApp() {
   v1.use('/auth', authRouter);
   v1.use('/catalog', catalogRouter);
   v1.use('/public', publicRouter);
+  v1.use('/org/listings', listingsRouter);
+  v1.use('/org/orzayah', orzayahRouter);
   v1.use('/org', orgRouter);
   v1.use('/admin', adminClientsRouter);
   v1.use('/admin', adminRouter);

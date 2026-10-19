@@ -167,6 +167,8 @@ registryRouter.post(
       person: zPerson,
       condition: zCondition,
       price: zMoney,
+      payment_method: z.enum(['cash', 'orzayah']).default('cash'),
+      listing_id: zUuid.optional().nullable(),
       notes: zNotes
     })
   }),

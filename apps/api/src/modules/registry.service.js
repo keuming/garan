@@ -187,9 +187,9 @@ async function upsertPerson(client, p, { orgId, shopId }) {
 async function insertTransaction(client, t) {
   const { rows } = await client.query(
     `INSERT INTO transactions (receipt_number, verification_code, type, device_id, organization_id,
-                               shop_id, user_id, person_id, condition, price, supplier_name, notes)
+                               shop_id, user_id, person_id, condition, price, supplier_name, notes, payment_method)
      VALUES ('GR' || to_char(now() AT TIME ZONE 'UTC', 'YYMMDD') || '-' || lpad(nextval('receipt_seq')::text, 7, '0'),
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id`,
     [
       randomCode(10),
@@ -202,7 +202,8 @@ async function insertTransaction(client, t) {
       t.condition,
       t.price,
       t.supplierName ?? null,
-      t.notes ?? null
+      t.notes ?? null,
+      t.paymentMethod ?? null
     ]
   );
   return rows[0].id;
@@ -316,7 +317,7 @@ export async function sale(req, shopId, body) {
       // Vente directe d'un téléphone neuf jamais saisi en stock
       deviceId = await createDevice(c, body.device, { type: 'person', id: buyerId });
     }
-    return insertTransaction(c, {
+    const id = await insertTransaction(c, {
       type: 'sale',
       deviceId,
       orgId: req.auth.orgId,
@@ -325,8 +326,18 @@ export async function sale(req, shopId, body) {
       personId: buyerId,
       condition: body.condition,
       price: body.price,
+      paymentMethod: body.payment_method,
       notes: body.notes
     });
+    // Décrément du stock de l'article « Disponibilité » lié (le cas échéant).
+    if (body.listing_id) {
+      await c.query(
+        `UPDATE listings SET quantity = GREATEST(quantity - 1, 0)
+         WHERE id = $1 AND shop_id = $2 AND organization_id = $3`,
+        [body.listing_id, shopId, req.auth.orgId]
+      );
+    }
+    return id;
   });
   await audit(req, 'transaction.sale', { entity: 'transaction', entityId: txId });
   return txId;
@@ -336,12 +347,13 @@ export async function sale(req, shopId, body) {
 
 const TX_SELECT = `
   SELECT t.id, t.receipt_number, t.verification_code, t.type, t.condition, t.price, t.currency,
-         t.supplier_name, t.notes, t.occurred_at, t.shop_id, t.organization_id,
+         t.supplier_name, t.notes, t.occurred_at, t.shop_id, t.organization_id, t.payment_method,
          json_build_object('id', d.id, 'imei1', d.imei1, 'imei2', d.imei2, 'brand', b.name,
                            'model', COALESCE(m.name, d.model_label), 'color', d.color,
                            'storage_gb', d.storage_gb, 'status', d.status) AS device,
          json_build_object('id', s.id, 'name', s.name, 'phone', s.phone, 'city', s.city,
                            'district', s.district, 'rccm', s.rccm) AS shop,
+         json_build_object('name', o.name, 'rccm', o.rccm, 'phone', o.phone) AS organization,
          CASE WHEN p.id IS NULL THEN NULL ELSE
            json_build_object('id', p.id, 'full_name', p.full_name, 'phone1', p.phone1, 'phone2', p.phone2,
                              'email', p.email, 'id_doc_type', p.id_doc_type, 'id_doc_number', p.id_doc_number)
@@ -352,6 +364,7 @@ const TX_SELECT = `
   LEFT JOIN brands b ON b.id = d.brand_id
   LEFT JOIN models m ON m.id = d.model_id
   JOIN shops s ON s.id = t.shop_id
+  JOIN organizations o ON o.id = t.organization_id
   LEFT JOIN persons p ON p.id = t.person_id
   JOIN users u ON u.id = t.user_id`;
 

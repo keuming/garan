@@ -18,6 +18,12 @@ const schema = z
 
     CORS_ORIGINS: z.string().default('*'),
     PUBLIC_WEB_URL: z.string().url().default('http://localhost:5173'),
+    API_PUBLIC_URL: z.string().url().default('http://localhost:4000'),
+
+    // Intégration ORZAYAH (paiement + solde). Laissées vides pour l'instant : câblage ultérieur.
+    ORZAYAH_PAY_URL: z.string().url().default('https://pay.orzayah.com'),
+    ORZAYAH_API_URL: z.string().default(''),
+    ORZAYAH_API_KEY: z.string().default(''),
     DEFAULT_COUNTRY_CODE: z.string().regex(/^\d{1,3}$/).default('225'),
     TRIAL_DAYS: z.coerce.number().int().min(0).default(14),
 

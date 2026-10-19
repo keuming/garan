@@ -14,6 +14,22 @@ import { requireOwner, requireUser } from '../middleware/auth.js';
 export const orgRouter = Router();
 orgRouter.use(requireUser, requireOwner);
 
+/* ------------------------------- Profil ------------------------------- */
+
+// Met à jour le profil marchand (numéro de compte ORZAYAH pour l'encaissement et le solde)
+orgRouter.patch(
+  '/profile',
+  validate({ body: z.object({ orzayah_number: z.string().trim().max(40).optional().nullable() }) }),
+  async (req, res) => {
+    const { rows } = await query(
+      `UPDATE organizations SET orzayah_number = $2 WHERE id = $1 RETURNING orzayah_number`,
+      [req.auth.orgId, req.v.body.orzayah_number || null]
+    );
+    await audit(req, 'org.profile_updated', { entity: 'organization', entityId: req.auth.orgId });
+    res.json({ orzayah_number: rows[0].orzayah_number });
+  }
+);
+
 /* ------------------------------- Magasins ------------------------------- */
 
 orgRouter.get('/shops', async (req, res) => {
@@ -161,3 +177,48 @@ orgRouter.patch(
     res.json(rows[0]);
   }
 );
+
+/* ------------------- Supervision super marchand (mobile) ------------------- */
+
+/** Vérifie que le compte principal connecté est bien celui d'un super marchand. */
+async function requireSuperMerchant(req, res, next) {
+  const { rows } = await query(`SELECT type FROM organizations WHERE id = $1`, [req.auth.orgId]);
+  if (!rows[0] || rows[0].type !== 'super_merchant') {
+    throw new AppError(403, 'NOT_SUPER_MERCHANT', 'Réservé aux super marchands');
+  }
+  next();
+}
+
+/** Tableau de bord consolidé du super marchand : états de tous ses sous-marchands. */
+orgRouter.get('/overview', requireSuperMerchant, async (req, res) => {
+  const { from, to } = req.query;
+  const period = ['stock_in', 'sale', 'purchase'];
+  const [totals, children] = await Promise.all([
+    query(
+      `SELECT t.type, count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
+       FROM transactions t
+       WHERE t.organization_id IN (SELECT id FROM organizations WHERE parent_id = $1)
+         AND ($2::timestamptz IS NULL OR t.occurred_at >= $2)
+         AND ($3::timestamptz IS NULL OR t.occurred_at < $3)
+       GROUP BY t.type`,
+      [req.auth.orgId, from ? new Date(from) : null, to ? new Date(to) : null]
+    ),
+    query(
+      `SELECT o.id, o.name, o.status, o.city, o.district, o.subscription_expires_at,
+              COALESCE((SELECT count(*)::int FROM transactions t WHERE t.organization_id = o.id AND t.type = 'sale'
+                 AND ($2::timestamptz IS NULL OR t.occurred_at >= $2) AND ($3::timestamptz IS NULL OR t.occurred_at < $3)), 0) AS sales_count,
+              COALESCE((SELECT sum(price) FROM transactions t WHERE t.organization_id = o.id AND t.type = 'sale'
+                 AND ($2::timestamptz IS NULL OR t.occurred_at >= $2) AND ($3::timestamptz IS NULL OR t.occurred_at < $3)), 0) AS sales_amount
+       FROM organizations o WHERE o.parent_id = $1 ORDER BY o.created_at`,
+      [req.auth.orgId, from ? new Date(from) : null, to ? new Date(to) : null]
+    )
+  ]);
+  const by = Object.fromEntries(period.map((t) => [t, totals.rows.find((r) => r.type === t) ?? { count: 0, amount: 0 }]));
+  res.json({
+    sub_merchants: children.rows.length,
+    sale: by.sale,
+    purchase: by.purchase,
+    stock_in: by.stock_in,
+    children: children.rows
+  });
+});

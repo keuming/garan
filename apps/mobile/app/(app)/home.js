@@ -7,16 +7,20 @@ import { useAuth } from '../../src/lib/auth';
 import { date, fcfa, num, periodRange } from '../../src/lib/format';
 import { colors, radius } from '../../src/lib/theme';
 
-function Tile({ title, sub, onPress, tone = 'blue' }) {
-  const bg = { blue: colors.blue, navy: colors.navy, cyan: '#0E86B8', white: '#fff' }[tone];
+function Tile({ title, sub, onPress, tone = 'green', icon }) {
+  const bg = { green: colors.blue, navy: colors.navy, cyan: colors.cyan, white: '#fff' }[tone];
   const fg = tone === 'white' ? colors.ink : '#fff';
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [st.tile, { backgroundColor: bg, borderColor: tone === 'white' ? colors.line : bg }, pressed && { opacity: 0.85 }]}>
-      <Text style={[st.tileTitle, { color: fg }]}>{title}</Text>
-      {sub ? <Text style={{ color: tone === 'white' ? colors.ink2 : 'rgba(255,255,255,0.85)', fontSize: 13 }}>{sub}</Text> : null}
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [st.tile, { backgroundColor: bg, borderColor: tone === 'white' ? colors.line : bg }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}>
+      {icon ? <Text style={{ fontSize: 22 }}>{icon}</Text> : null}
+      <View style={{ gap: 2 }}>
+        <Text style={[st.tileTitle, { color: fg }]}>{title}</Text>
+        {sub ? <Text style={{ color: tone === 'white' ? colors.ink2 : 'rgba(255,255,255,0.9)', fontSize: 12.5 }}>{sub}</Text> : null}
+      </View>
     </Pressable>
   );
 }
+
 function Kpi({ label, value, hint }) {
   return (
     <View style={st.kpi}>
@@ -27,33 +31,57 @@ function Kpi({ label, value, hint }) {
   );
 }
 
-/* ------------------------- Super marchand (supervision) ------------------------- */
+/* --------------------------- Solde ORZAYAH --------------------------- */
+function OrzayahBalance() {
+  const q = useQuery({ queryKey: ['orzayah', 'balance'], queryFn: () => api.get('/org/orzayah/balance'), staleTime: 60_000 });
+  const d = q.data;
+  const ready = d?.configured && d?.balance != null;
+  return (
+    <Pressable accessibilityRole="button" onPress={() => router.push('/account')} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
+      <View style={st.balance}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={st.balanceLabel}>Solde ORZAYAH</Text>
+          <Text style={st.balanceTag}>paiement digital</Text>
+        </View>
+        <Text style={st.balanceValue} numberOfLines={1} adjustsFontSizeToFit>
+          {q.isLoading ? '—' : ready ? fcfa(d.balance) : d?.orzayah_number ? 'Indisponible' : 'Non configuré'}
+        </Text>
+        <Text style={st.balanceHint}>
+          {ready ? `Compte ${d.orzayah_number}` : d?.orzayah_number ? 'Solde bientôt disponible' : 'Touchez pour renseigner votre numéro ORZAYAH'}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/* ------------------------- Super marchand ------------------------- */
 function SupervisorHome() {
   const { user } = useAuth();
   const month = periodRange('month');
   const ov = useQuery({ queryKey: ['overview', 'month'], queryFn: () => api.get('/org/overview', { from: month.from }) });
   return (
     <Screen refreshing={ov.isFetching} onRefresh={ov.refetch}>
-      <View style={{ gap: 2 }}>
-        <Text style={{ fontSize: 20, fontWeight: '700', color: colors.ink }}>{user?.organization?.name}</Text>
-        <Muted>Super marchand · {user?.full_name}</Muted>
+      <View style={st.hero}>
+        <Text style={st.heroName} numberOfLines={2}>{user?.organization?.name}</Text>
+        <Text style={st.heroRole}>Super marchand · {user?.full_name}</Text>
       </View>
+      <OrzayahBalance />
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
         <Kpi label="Sous-marchands" value={num(ov.data?.sub_merchants)} />
         <Kpi label="Ventes réseau (mois)" value={num(ov.data?.sale?.count)} hint={fcfa(ov.data?.sale?.amount)} />
         <Kpi label="Rachats réseau (mois)" value={num(ov.data?.purchase?.count)} hint={fcfa(ov.data?.purchase?.amount)} />
       </Card>
       <View style={st.grid}>
-        <Tile title="Mes sous-marchands" sub="États par boutique" tone="white" onPress={() => router.push('/supervision')} />
-        <Tile title="Vérifier un IMEI" sub="Avant un achat" tone="white" onPress={() => router.push('/check')} />
-        <Tile title="Mon compte" tone="white" onPress={() => router.push('/account')} />
+        <Tile title="Mes sous-marchands" sub="États par boutique" icon="🏪" tone="navy" onPress={() => router.push('/supervision')} />
+        <Tile title="Vérifier un IMEI" sub="Avant un achat" icon="🔍" tone="white" onPress={() => router.push('/check')} />
+        <Tile title="Mon compte" icon="👤" tone="white" onPress={() => router.push('/account')} />
       </View>
       <Banner tone="info">Chaque sous-marchand gère ses ventes depuis son propre compte Marchand. Vous suivez ici leur activité consolidée.</Banner>
     </Screen>
   );
 }
 
-/* ----------------------------- Marchand / vendeur ----------------------------- */
+/* ----------------------------- Marchand ----------------------------- */
 function MerchantHome() {
   const { user, isOwner } = useAuth();
   const today = periodRange('today');
@@ -71,9 +99,9 @@ function MerchantHome() {
 
   return (
     <Screen refreshing={refreshing} onRefresh={refetch}>
-      <View style={{ gap: 2 }}>
-        <Text style={{ fontSize: 20, fontWeight: '700', color: colors.ink }}>{shopName}</Text>
-        <Muted>{user?.full_name} · {isOwner ? 'Compte principal' : 'Vendeur'}</Muted>
+      <View style={st.hero}>
+        <Text style={st.heroName} numberOfLines={2}>{shopName}</Text>
+        <Text style={st.heroRole}>{user?.full_name} · {isOwner ? 'Compte principal' : 'Vendeur'}</Text>
       </View>
 
       {daysLeft !== null && daysLeft <= 0 ? (
@@ -82,23 +110,29 @@ function MerchantHome() {
         <Banner tone="warn" title={org.status === 'trial' ? 'Fin de la période d’essai' : 'Abonnement bientôt expiré'}>Échéance le {date(exp)} ({daysLeft} j).</Banner>
       ) : null}
 
+      <OrzayahBalance />
+
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
         <Kpi label="Ventes du jour" value={num(sToday.data?.total_count)} hint={fcfa(sToday.data?.total_amount)} />
         <Kpi label="Rachats du jour" value={num(pToday.data?.total_count)} hint={fcfa(pToday.data?.total_amount)} />
         <Kpi label="Ventes du mois" value={num(sMonth.data?.total_count)} hint={fcfa(sMonth.data?.total_amount)} />
       </Card>
 
+      <Text style={st.section}>Opérations</Text>
       <View style={st.grid}>
-        <Tile title="Vente" sub="Lier le téléphone à l’acheteur" onPress={() => router.push({ pathname: '/operation', params: { type: 'sale' } })} />
-        <Tile title="Rachat" sub="Acheter à un particulier" tone="navy" onPress={() => router.push({ pathname: '/operation', params: { type: 'purchase' } })} />
-        <Tile title="Entrée en stock" sub="Téléphone neuf fournisseur" tone="cyan" onPress={() => router.push({ pathname: '/operation', params: { type: 'stock_in' } })} />
-        <Tile title="Vérifier un IMEI" sub="Avant tout achat" tone="white" onPress={() => router.push('/check')} />
+        <Tile title="Vente" sub="Lier le téléphone à l’acheteur" icon="💸" tone="green" onPress={() => router.push('/sale')} />
+        <Tile title="Rachat" sub="Acheter à un particulier" icon="📥" tone="navy" onPress={() => router.push({ pathname: '/operation', params: { type: 'purchase' } })} />
+        <Tile title="Entrée en stock" sub="Téléphone neuf fournisseur" icon="📦" tone="cyan" onPress={() => router.push({ pathname: '/operation', params: { type: 'stock_in' } })} />
+        <Tile title="Disponibilité" sub="Vitrine des articles en boutique" icon="🛍️" tone="white" onPress={() => router.push('/availability')} />
       </View>
+
+      <Text style={st.section}>Gestion</Text>
       <View style={st.grid}>
-        <Tile title="Historique" sub="Toutes les opérations" tone="white" onPress={() => router.push('/history')} />
-        <Tile title="États" sub="Par marque et modèle" tone="white" onPress={() => router.push('/stats')} />
-        {isOwner ? <Tile title="Comptes vendeurs" sub="Accès de la boutique" tone="white" onPress={() => router.push('/users')} /> : null}
-        <Tile title="Mon compte" tone="white" onPress={() => router.push('/account')} />
+        <Tile title="Vérifier un IMEI" sub="Avant tout achat" icon="🔍" tone="white" onPress={() => router.push('/check')} />
+        <Tile title="Historique" sub="Toutes les opérations" icon="🧾" tone="white" onPress={() => router.push('/history')} />
+        <Tile title="États" sub="Par marque et modèle" icon="📊" tone="white" onPress={() => router.push('/stats')} />
+        {isOwner ? <Tile title="Comptes vendeurs" sub="Accès de la boutique" icon="👥" tone="white" onPress={() => router.push('/users')} /> : null}
+        <Tile title="Mon compte" icon="👤" tone="white" onPress={() => router.push('/account')} />
       </View>
     </Screen>
   );
@@ -124,10 +158,19 @@ export default function Home() {
 }
 
 const st = StyleSheet.create({
+  hero: { alignItems: 'center', gap: 2, paddingVertical: 4 },
+  heroName: { fontSize: 22, fontWeight: '800', color: colors.ink, textAlign: 'center' },
+  heroRole: { fontSize: 13, color: colors.ink2, textAlign: 'center' },
+  section: { fontSize: 13, fontWeight: '700', color: colors.ink2, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  tile: { flexGrow: 1, flexBasis: '45%', minHeight: 96, borderRadius: radius.lg, padding: 16, justifyContent: 'flex-end', gap: 4, borderWidth: 1 },
-  tileTitle: { fontSize: 18, fontWeight: '800' },
+  tile: { flexGrow: 1, flexBasis: '45%', minHeight: 104, borderRadius: radius.lg, padding: 16, justifyContent: 'space-between', borderWidth: 1 },
+  tileTitle: { fontSize: 17, fontWeight: '800' },
   kpi: { flexGrow: 1, flexBasis: '28%', minWidth: 96, gap: 2 },
   kpiLabel: { fontSize: 12, color: colors.ink2, fontWeight: '600' },
-  kpiValue: { fontSize: 24, fontWeight: '800', color: colors.ink }
+  kpiValue: { fontSize: 23, fontWeight: '800', color: colors.ink },
+  balance: { backgroundColor: colors.green, borderRadius: radius.lg, padding: 18, gap: 4 },
+  balanceLabel: { color: '#042f1f', fontWeight: '800', fontSize: 14 },
+  balanceTag: { color: '#042f1f', opacity: 0.7, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+  balanceValue: { color: '#042a1c', fontSize: 30, fontWeight: '900', marginTop: 2 },
+  balanceHint: { color: '#063d29', opacity: 0.85, fontSize: 12.5 }
 });

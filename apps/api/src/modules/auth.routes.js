@@ -36,7 +36,8 @@ export async function loadUserProfile(userId) {
     `SELECT u.id, u.role, u.full_name, u.phone, u.shop_id, u.status,
             json_build_object(
               'id', o.id, 'name', o.name, 'type', o.type, 'status', o.status, 'plan', o.plan, 'max_shops', o.max_shops,
-              'subscription_expires_at', o.subscription_expires_at, 'rccm', o.rccm, 'email', o.email
+              'subscription_expires_at', o.subscription_expires_at, 'rccm', o.rccm, 'email', o.email,
+              'orzayah_number', o.orzayah_number
             ) AS organization,
             COALESCE((
               SELECT json_agg(json_build_object(
