@@ -14,7 +14,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, radius } from '../lib/theme';
+import { colors, radius, shadow } from '../lib/theme';
 
 export function Screen({ children, scroll = true, refreshing, onRefresh, contentStyle }) {
   const body = scroll ? (
@@ -205,7 +205,7 @@ export const s = StyleSheet.create({
   screen: { padding: 16, gap: 16, paddingBottom: 40 },
   title: { fontSize: 22, fontWeight: '700', color: colors.ink },
   sub: { fontSize: 14, color: colors.ink2 },
-  card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: 16, gap: 12, borderWidth: 1, borderColor: colors.line },
+  card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: 16, gap: 12, borderWidth: 1, borderColor: colors.line, ...shadow.card },
   label: { fontSize: 13, fontWeight: '600', color: colors.ink2 },
   muted: { fontSize: 13, color: colors.ink3 },
   btn: { minHeight: 50, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderWidth: 1 },

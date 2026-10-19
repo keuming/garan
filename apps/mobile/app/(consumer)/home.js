@@ -1,12 +1,13 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { Banner, Card, Loading, Muted, Screen, Wordmark } from '../../src/components/ui';
+import { Banner, Button, Card, Loading, Muted, Screen, Wordmark } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/UpdateBanner';
+import { ProtectedHero } from '../../src/components/ProtectedHero';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { date } from '../../src/lib/format';
-import { colors, radius } from '../../src/lib/theme';
+import { colors, radius, shadow } from '../../src/lib/theme';
 
 function Tile({ title, sub, onPress, tone = 'green', icon }) {
   const bg = { green: colors.blue, navy: colors.navy, blood: colors.blood, white: '#fff' }[tone];
@@ -62,6 +63,8 @@ export default function ConsumerHome() {
   const { data, isLoading, isFetching, refetch } = useQuery({ queryKey: ['consumer', 'devices'], queryFn: () => api.get('/consumer/devices') });
   const items = data?.items ?? [];
   const active = items.filter((i) => i.status === 'active');
+  const firstName = consumer?.full_name?.split(' ')[0] ?? '';
+  const subscribed = consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date();
 
   return (
     <>
@@ -76,12 +79,25 @@ export default function ConsumerHome() {
         }}
       />
       <Screen refreshing={isFetching && !isLoading} onRefresh={refetch}>
-        <View style={st.hero}>
-          <Text style={st.heroName} numberOfLines={2}>{consumer?.full_name}</Text>
-          <Text style={st.heroSub}>{active.length} téléphone(s) protégé(s) · gaRAN</Text>
-        </View>
-
         <UpdateBanner />
+
+        {subscribed ? (
+          <ProtectedHero
+            tone="protected"
+            eyebrow={`Bonjour ${firstName}`}
+            title="Vous êtes protégé"
+            subtitle={`${active.length} téléphone(s) lié(s) · abonnement actif jusqu'au ${date(consumer.subscription_expires_at)}`}
+          />
+        ) : (
+          <ProtectedHero
+            tone="soft"
+            eyebrow={`Bonjour ${firstName}`}
+            title="Protégez vos téléphones"
+            subtitle="Abonnez-vous pour signaler un vol en un clic et prouver que vos téléphones sont à vous — 100 FCFA/mois."
+          >
+            <Button title="S’abonner (100 FCFA/mois)" onPress={() => router.push('/subscribe')} />
+          </ProtectedHero>
+        )}
 
         <View style={st.grid}>
           <Tile title="Linker mon téléphone" sub="Enregistrer et protéger" icon="🔗" tone="green" onPress={() => router.push('/link')} />
@@ -110,7 +126,7 @@ const st = StyleSheet.create({
   heroSub: { fontSize: 13, color: colors.ink2, textAlign: 'center' },
   section: { fontSize: 13, fontWeight: '700', color: colors.ink2, marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  tile: { flexGrow: 1, flexBasis: '45%', minHeight: 104, borderRadius: radius.lg, padding: 16, justifyContent: 'space-between', borderWidth: 1 },
+  tile: { flexGrow: 1, flexBasis: '45%', minHeight: 104, borderRadius: radius.lg, padding: 16, justifyContent: 'space-between', borderWidth: 1, ...shadow.tile },
   tileTitle: { fontSize: 16, fontWeight: '800' },
   phoneTitle: { fontSize: 16, fontWeight: '800', color: colors.ink, flex: 1 },
   infoLabel: { fontSize: 12.5, color: colors.ink2 },

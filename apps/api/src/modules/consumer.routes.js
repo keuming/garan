@@ -375,7 +375,7 @@ consumerRouter.get('/subscription/plan', requireConsumer, (req, res) => res.json
 consumerRouter.post(
   '/subscription/orzayah',
   requireConsumer,
-  validate({ body: z.object({ operator: z.enum(OPERATORS).optional(), account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide').optional(), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
+  validate({ body: z.object({ operator: z.enum(OPERATORS), account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide'), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
   async (req, res) => {
     const r = await initiateSubscription({ subjectType: 'consumer', subjectId: req.auth.sub, months: req.v.body.months, operator: req.v.body.operator, accountNumber: req.v.body.account_number });
     await audit(req, 'consumer.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });

@@ -3,10 +3,11 @@ import { router, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Banner, Card, Muted, Screen, Wordmark } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/UpdateBanner';
+import { ProtectedHero } from '../../src/components/ProtectedHero';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { date, fcfa, num, periodRange } from '../../src/lib/format';
-import { colors, radius } from '../../src/lib/theme';
+import { colors, radius, shadow } from '../../src/lib/theme';
 
 function Tile({ title, sub, onPress, tone = 'green', icon }) {
   const bg = { green: colors.blue, navy: colors.navy, cyan: colors.cyan, blood: colors.blood, white: '#fff' }[tone];
@@ -36,22 +37,23 @@ function Kpi({ label, value, hint }) {
 function SubscriptionCard() {
   const { user } = useAuth();
   const org = user?.organization;
+  const name = user?.role === 'agent' ? user.shops?.[0]?.name : org?.name;
   const exp = org?.subscription_expires_at ? new Date(org.subscription_expires_at) : null;
   const daysLeft = exp ? Math.ceil((exp - new Date()) / 86_400_000) : null;
   const expired = daysLeft !== null && daysLeft <= 0;
-  const value = expired ? 'Abonnement expiré' : org?.status === 'trial' ? 'Période d’essai' : daysLeft !== null ? `${daysLeft} j restants` : 'Abonnement';
+  const trial = org?.status === 'trial';
+
+  const tone = expired ? 'alert' : trial ? 'soft' : 'protected';
+  const title = expired ? 'Abonnement expiré' : trial ? 'Période d’essai' : 'Boutique protégée';
+  const subtitle = expired
+    ? 'Renouvelez pour continuer à enregistrer vos opérations — 1 000 FCFA/mois.'
+    : trial
+      ? `Essai en cours${exp ? ` jusqu'au ${date(exp)}` : ''}. Abonnez-vous — 1 000 FCFA/mois.`
+      : `Abonnement actif${exp ? ` jusqu'au ${date(exp)}` : ''} · paiement ORZAYAH`;
+
   return (
-    <Pressable accessibilityRole="button" onPress={() => router.push('/subscribe')} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
-      <View style={[st.balance, expired && { backgroundColor: colors.blood }]}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={[st.balanceLabel, expired && { color: '#fff' }]}>Abonnement gaRAN</Text>
-          <Text style={[st.balanceTag, expired && { color: 'rgba(255,255,255,0.85)' }]}>paiement ORZAYAH</Text>
-        </View>
-        <Text style={[st.balanceValue, expired && { color: '#fff', fontSize: 22 }]} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
-        <Text style={[st.balanceHint, expired && { color: 'rgba(255,255,255,0.9)' }]}>
-          {expired ? 'Touchez pour renouveler (1 000 FCFA/mois)' : exp ? `Échéance le ${date(exp)} · touchez pour renouveler` : 'Touchez pour vous abonner (1 000 FCFA/mois)'}
-        </Text>
-      </View>
+    <Pressable accessibilityRole="button" onPress={() => router.push('/subscribe')} style={({ pressed }) => [pressed && { opacity: 0.94 }]}>
+      <ProtectedHero tone={tone} eyebrow={name} title={title} subtitle={subtitle} />
     </Pressable>
   );
 }
@@ -63,10 +65,6 @@ function SupervisorHome() {
   const ov = useQuery({ queryKey: ['overview', 'month'], queryFn: () => api.get('/org/overview', { from: month.from }) });
   return (
     <Screen refreshing={ov.isFetching} onRefresh={ov.refetch}>
-      <View style={st.hero}>
-        <Text style={st.heroName} numberOfLines={2}>{user?.organization?.name}</Text>
-        <Text style={st.heroRole}>Super marchand · {user?.full_name}</Text>
-      </View>
       <UpdateBanner />
       <SubscriptionCard />
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
@@ -102,19 +100,7 @@ function MerchantHome() {
 
   return (
     <Screen refreshing={refreshing} onRefresh={refetch}>
-      <View style={st.hero}>
-        <Text style={st.heroName} numberOfLines={2}>{shopName}</Text>
-        <Text style={st.heroRole}>{user?.full_name} · {isOwner ? 'Compte principal' : 'Vendeur'}</Text>
-      </View>
-
       <UpdateBanner />
-
-      {daysLeft !== null && daysLeft <= 0 ? (
-        <Banner tone="danger" title="Abonnement expiré">Les nouvelles opérations sont bloquées. Contactez gaRAN.</Banner>
-      ) : daysLeft !== null && daysLeft <= 7 ? (
-        <Banner tone="warn" title={org.status === 'trial' ? 'Fin de la période d’essai' : 'Abonnement bientôt expiré'}>Échéance le {date(exp)} ({daysLeft} j).</Banner>
-      ) : null}
-
       <SubscriptionCard />
 
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
@@ -171,14 +157,9 @@ const st = StyleSheet.create({
   heroRole: { fontSize: 13, color: colors.ink2, textAlign: 'center' },
   section: { fontSize: 13, fontWeight: '700', color: colors.ink2, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  tile: { flexGrow: 1, flexBasis: '45%', minHeight: 104, borderRadius: radius.lg, padding: 16, justifyContent: 'space-between', borderWidth: 1 },
+  tile: { flexGrow: 1, flexBasis: '45%', minHeight: 104, borderRadius: radius.lg, padding: 16, justifyContent: 'space-between', borderWidth: 1, ...shadow.tile },
   tileTitle: { fontSize: 17, fontWeight: '800' },
   kpi: { flexGrow: 1, flexBasis: '28%', minWidth: 96, gap: 2 },
   kpiLabel: { fontSize: 12, color: colors.ink2, fontWeight: '600' },
-  kpiValue: { fontSize: 23, fontWeight: '800', color: colors.ink },
-  balance: { backgroundColor: colors.green, borderRadius: radius.lg, padding: 18, gap: 4 },
-  balanceLabel: { color: '#042f1f', fontWeight: '800', fontSize: 14 },
-  balanceTag: { color: '#042f1f', opacity: 0.7, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
-  balanceValue: { color: '#042a1c', fontSize: 30, fontWeight: '900', marginTop: 2 },
-  balanceHint: { color: '#063d29', opacity: 0.85, fontSize: 12.5 }
+  kpiValue: { fontSize: 23, fontWeight: '800', color: colors.ink }
 });

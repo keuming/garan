@@ -10,8 +10,8 @@ import { OPERATORS } from '../lib/orzayah.js';
 import { initiateSubscription, pollSubscription, PLAN_FCFA } from './subscription.service.js';
 
 const zSubscribe = z.object({
-  operator: z.enum(OPERATORS).optional(),
-  account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide').optional(),
+  operator: z.enum(OPERATORS),
+  account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide'),
   months: z.coerce.number().int().min(1).max(12).default(1)
 });
 
