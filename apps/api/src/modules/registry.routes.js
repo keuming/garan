@@ -27,6 +27,7 @@ import {
   purchase,
   sale,
   salesSummary,
+  balanceSummary,
   stockIn
 } from './registry.service.js';
 
@@ -260,5 +261,14 @@ registryRouter.get(
   async (req, res) => {
     const scope = await readScope(req, req.v.query.shop_id);
     res.json(await salesSummary(scope, req.v.query));
+  }
+);
+
+registryRouter.get(
+  '/stats/balance',
+  validate({ query: z.object({ shop_id: zUuid.optional(), ...zDateRange }) }),
+  async (req, res) => {
+    const scope = await readScope(req, req.v.query.shop_id);
+    res.json(await balanceSummary(scope, req.v.query));
   }
 );

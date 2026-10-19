@@ -470,3 +470,55 @@ export async function salesSummary(scope, { from, to, type }) {
     by_shop: byShop.rows
   };
 }
+
+/** Soldes et ventes par état sur une période : digital (ORZAYAH), espèces, total. */
+export async function balanceSummary(scope, { from, to }) {
+  const params = [scope.orgId];
+  const cond = ['t.organization_id = $1', "t.type IN ('sale', 'purchase')"];
+  if (scope.shopId) {
+    params.push(scope.shopId);
+    cond.push(`t.shop_id = $${params.length}`);
+  }
+  if (from) {
+    params.push(from);
+    cond.push(`t.occurred_at >= $${params.length}`);
+  }
+  if (to) {
+    params.push(to);
+    cond.push(`t.occurred_at < $${params.length}`);
+  }
+  const { rows } = await query(
+    `SELECT t.type, t.condition, COALESCE(t.payment_method, 'cash') AS payment_method,
+            count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
+     FROM transactions t WHERE ${cond.join(' AND ')} GROUP BY 1, 2, 3`,
+    params
+  );
+  const byCondition = { new: { count: 0, amount: 0 }, like_new: { count: 0, amount: 0 }, used: { count: 0, amount: 0 } };
+  const sales = { count: 0, amount: 0 };
+  const purchases = { count: 0, amount: 0 };
+  let digital = 0;
+  let cash = 0;
+  for (const r of rows) {
+    const amount = Number(r.amount);
+    const sign = r.type === 'sale' ? 1 : -1;
+    if (r.payment_method === 'orzayah') digital += sign * amount;
+    else cash += sign * amount;
+    if (r.type === 'sale') {
+      sales.count += r.count;
+      sales.amount += amount;
+      const c = (byCondition[r.condition] ??= { count: 0, amount: 0 });
+      c.count += r.count;
+      c.amount += amount;
+    } else {
+      purchases.count += r.count;
+      purchases.amount += amount;
+    }
+  }
+  return {
+    from: from ?? null,
+    to: to ?? null,
+    sales: { ...sales, by_condition: byCondition },
+    purchases,
+    balances: { digital, cash, total: digital + cash }
+  };
+}

@@ -1,9 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Card, Muted, Screen, Wordmark } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/UpdateBanner';
 import { ProtectedHero } from '../../src/components/ProtectedHero';
+import { BalanceCard } from '../../src/components/BalanceCard';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { date, fcfa, num, periodRange } from '../../src/lib/format';
@@ -85,17 +86,13 @@ function SupervisorHome() {
 /* ----------------------------- Marchand ----------------------------- */
 function MerchantHome() {
   const { user, isOwner } = useAuth();
-  const today = periodRange('today');
-  const month = periodRange('month');
-  const sToday = useQuery({ queryKey: ['stats', 'sale', 'today'], queryFn: () => api.get('/stats/summary', { type: 'sale', from: today.from }) });
-  const pToday = useQuery({ queryKey: ['stats', 'purchase', 'today'], queryFn: () => api.get('/stats/summary', { type: 'purchase', from: today.from }) });
-  const sMonth = useQuery({ queryKey: ['stats', 'sale', 'month'], queryFn: () => api.get('/stats/summary', { type: 'sale', from: month.from }) });
+  const qc = useQueryClient();
 
   const org = user?.organization;
   const exp = org?.subscription_expires_at ? new Date(org.subscription_expires_at) : null;
   const daysLeft = exp ? Math.ceil((exp - new Date()) / 86_400_000) : null;
-  const refreshing = sToday.isFetching || pToday.isFetching || sMonth.isFetching;
-  const refetch = () => Promise.all([sToday.refetch(), pToday.refetch(), sMonth.refetch()]);
+  const refreshing = useIsFetching({ queryKey: ['balance'] }) > 0;
+  const refetch = () => qc.invalidateQueries({ queryKey: ['balance'] });
   const shopName = user?.role === 'agent' ? user.shops?.[0]?.name : org?.name;
 
   return (
@@ -103,11 +100,7 @@ function MerchantHome() {
       <UpdateBanner />
       <SubscriptionCard />
 
-      <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
-        <Kpi label="Ventes du jour" value={num(sToday.data?.total_count)} hint={fcfa(sToday.data?.total_amount)} />
-        <Kpi label="Rachats du jour" value={num(pToday.data?.total_count)} hint={fcfa(pToday.data?.total_amount)} />
-        <Kpi label="Ventes du mois" value={num(sMonth.data?.total_count)} hint={fcfa(sMonth.data?.total_amount)} />
-      </Card>
+      <BalanceCard />
 
       <Text style={st.section}>Opérations</Text>
       <View style={st.grid}>
