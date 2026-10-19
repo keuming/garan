@@ -9,7 +9,7 @@ import { date, fcfa, num, periodRange } from '../../src/lib/format';
 import { colors, radius } from '../../src/lib/theme';
 
 function Tile({ title, sub, onPress, tone = 'green', icon }) {
-  const bg = { green: colors.blue, navy: colors.navy, cyan: colors.cyan, white: '#fff' }[tone];
+  const bg = { green: colors.blue, navy: colors.navy, cyan: colors.cyan, blood: colors.blood, white: '#fff' }[tone];
   const fg = tone === 'white' ? colors.ink : '#fff';
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [st.tile, { backgroundColor: bg, borderColor: tone === 'white' ? colors.line : bg }, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]}>
@@ -133,6 +133,8 @@ function MerchantHome() {
       <Text style={st.section}>Gestion</Text>
       <View style={st.grid}>
         <Tile title="Vérifier un IMEI" sub="Avant tout achat" icon="🔍" tone="white" onPress={() => router.push('/check')} />
+        <Tile title="Déclarer un vol" sub="Signaler un téléphone volé" icon="🚨" tone="blood" onPress={() => router.push('/report-theft')} />
+        <Tile title="Téléphones volés" sub="Registre réseau gaRAN" icon="⛔" tone="white" onPress={() => router.push('/stolen')} />
         <Tile title="Historique" sub="Toutes les opérations" icon="🧾" tone="white" onPress={() => router.push('/history')} />
         <Tile title="États" sub="Par marque et modèle" icon="📊" tone="white" onPress={() => router.push('/stats')} />
         {isOwner ? <Tile title="Comptes vendeurs" sub="Accès de la boutique" icon="👥" tone="white" onPress={() => router.push('/users')} /> : null}

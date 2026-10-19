@@ -23,6 +23,26 @@ export default function ConsumerDevice() {
     }
   });
 
+  const theft = useMutation({
+    mutationFn: (kind) => api.post(`/consumer/devices/${id}/report-theft`, { kind }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['consumer', 'devices'] });
+      await qc.invalidateQueries({ queryKey: ['stolen'] });
+    }
+  });
+
+  function confirmTheft() {
+    Alert.alert(
+      'Déclarer ce téléphone',
+      'Il sera signalé sur tout le réseau gaRAN et deviendra invendable. Rapprochez-vous ensuite de la police avec votre reçu.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Perdu', onPress: () => theft.mutate('lost') },
+        { text: 'Volé', style: 'destructive', onPress: () => theft.mutate('stolen') }
+      ]
+    );
+  }
+
   function confirmRelease() {
     Alert.alert(
       'Délier ce téléphone ?',
@@ -56,8 +76,13 @@ export default function ConsumerDevice() {
       )}
 
       <Card>
+        <Row label="Marque" value={item.brand ?? '—'} />
+        <Row label="Modèle" value={item.model ?? '—'} />
         <Row label="IMEI 1" value={item.imei1} mono />
         {item.imei2 ? <Row label="IMEI 2" value={item.imei2} mono /> : null}
+        {item.color ? <Row label="Couleur" value={item.color} /> : null}
+        {item.storage_gb ? <Row label="Stockage" value={`${item.storage_gb} Go`} /> : null}
+        <Row label="Statut" value={reported ? (item.device_status === 'lost' ? 'Perdu' : 'Volé') : active ? 'Lié à votre compte' : 'Délié'} />
         <Row label="Lié depuis" value={date(item.acquired_at)} />
         {!active ? <Row label="Délié le" value={date(item.released_at)} /> : null}
       </Card>
@@ -78,9 +103,11 @@ export default function ConsumerDevice() {
 
       {active ? (
         <View style={{ gap: 8 }}>
+          <ErrorBanner error={theft.error} />
+          <Button title="🚨 Déclarer volé / perdu" variant="danger" onPress={confirmTheft} loading={theft.isPending} />
           <ErrorBanner error={release.error} />
-          <Button title="J’ai revendu ce téléphone (délier)" variant="danger" onPress={confirmRelease} loading={release.isPending} />
-          <Muted>Déliez un téléphone uniquement après l’avoir vendu ou cédé. Cela permet au nouveau propriétaire de l’enregistrer à son tour.</Muted>
+          <Button title="J’ai revendu ce téléphone (délier)" variant="secondary" onPress={confirmRelease} loading={release.isPending} />
+          <Muted>Déclarez un vol dès que possible : le téléphone devient invendable sur le réseau. Déliez uniquement après une vente ou une cession volontaire.</Muted>
         </View>
       ) : null}
     </Screen>

@@ -238,7 +238,7 @@ consumerRouter.get('/devices', requireConsumer, async (req, res) => {
   const { rows } = await query(
     `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
             r.receipt_number, r.receipt_key, r.box_photo_key,
-            d.id AS device_id, d.imei1, d.imei2, d.status AS device_status,
+            d.id AS device_id, d.imei1, d.imei2, d.status AS device_status, d.color, d.storage_gb,
             b.name AS brand, COALESCE(m.name, d.model_label) AS model
      FROM device_registrations r
      JOIN devices d ON d.id = r.device_id
@@ -334,6 +334,35 @@ consumerRouter.post(
     });
     await audit(req, 'consumer.device_released', { entity: 'device_registration', entityId: req.v.params.registrationId });
     res.status(204).end();
+  }
+);
+
+/** Déclaration de vol / perte d'un téléphone lié : l'usager est le propriétaire, on confirme directement. */
+consumerRouter.post(
+  '/devices/:registrationId/report-theft',
+  requireConsumer,
+  validate({ params: z.object({ registrationId: zUuid }), body: z.object({ kind: z.enum(['stolen', 'lost']).default('stolen'), police_report_number: z.string().trim().max(60).optional().nullable(), description: z.string().trim().max(1000).optional().nullable() }) }),
+  async (req, res) => {
+    const me = (await query(`SELECT full_name, phone FROM consumers WHERE id = $1`, [req.auth.sub])).rows[0];
+    const result = await withTransaction(async (c) => {
+      const { rows } = await c.query(
+        `SELECT r.device_id, d.imei1 FROM device_registrations r JOIN devices d ON d.id = r.device_id
+         WHERE r.id = $1 AND r.consumer_id = $2 AND r.status = 'active' FOR UPDATE OF d`,
+        [req.v.params.registrationId, req.auth.sub]
+      );
+      if (!rows[0]) throw notFound('Téléphone lié introuvable');
+      const { device_id: deviceId, imei1 } = rows[0];
+      const rep = await c.query(
+        `INSERT INTO theft_reports (device_id, imei, kind, reporter_name, reporter_phone, id_doc_type, id_doc_number,
+                                    police_report_number, description, status, auto_confirmed)
+         VALUES ($1,$2,$3,$4,$5,'COMPTE_USAGER',$6,$7,$8,'confirmed',true) RETURNING id`,
+        [deviceId, imei1, req.v.body.kind, me.full_name, me.phone, me.phone, req.v.body.police_report_number ?? null, req.v.body.description ?? null]
+      );
+      await c.query(`UPDATE devices SET status = $2 WHERE id = $1`, [deviceId, req.v.body.kind]);
+      return rep.rows[0].id;
+    });
+    await audit(req, 'consumer.theft_reported', { entity: 'theft_report', entityId: result, meta: { kind: req.v.body.kind } });
+    res.status(201).json({ reference: result, status: 'confirmed', message: 'Téléphone signalé dans tout le réseau gaRAN. Rapprochez-vous de la police avec votre reçu.' });
   }
 );
 

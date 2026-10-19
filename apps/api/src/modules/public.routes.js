@@ -83,6 +83,38 @@ publicRouter.get(
   }
 );
 
+/* ----------------------- Registre public des volés ---------------------- */
+
+// Liste des téléphones signalés volés/perdus (visible par tous : alerte réseau gaRAN).
+publicRouter.get(
+  '/stolen-devices',
+  publicLimiter,
+  validate({ query: z.object({ q: z.string().trim().max(40).optional() }) }),
+  async (req, res) => {
+    const params = [];
+    let where = "d.status IN ('stolen', 'lost')";
+    if (req.v.query.q) {
+      const digits = req.v.query.q.replace(/\D/g, '');
+      if (digits) {
+        params.push(digits);
+        where += ` AND (d.imei1 LIKE $${params.length} || '%' OR d.imei2 LIKE $${params.length} || '%')`;
+      }
+    }
+    const { rows } = await query(
+      `SELECT d.imei1, d.imei2, d.status AS kind, b.name AS brand, COALESCE(m.name, d.model_label) AS model,
+              (SELECT max(tr.created_at) FROM theft_reports tr WHERE tr.device_id = d.id AND tr.status = 'confirmed') AS reported_at
+       FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+       WHERE ${where}
+       ORDER BY reported_at DESC NULLS LAST
+       LIMIT 200`,
+      params
+    );
+    res.json({
+      items: rows.map((r) => ({ imei1: r.imei1, imei2: r.imei2, brand: r.brand, model: r.model, kind: r.kind, reported_at: r.reported_at }))
+    });
+  }
+);
+
 /* ----------------------- Vitrine publique boutique ---------------------- */
 
 // Photo d'un article de disponibilité (publique, mise en cache).

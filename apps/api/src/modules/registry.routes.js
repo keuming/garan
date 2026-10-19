@@ -3,9 +3,10 @@ import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { query } from '../db.js';
+import { query, withTransaction } from '../db.js';
 import { badRequest } from '../lib/errors.js';
 import { storage } from '../lib/storage.js';
+import { audit } from '../lib/audit.js';
 import {
   validate,
   zDateRange,
@@ -176,6 +177,50 @@ registryRouter.post(
     const shopId = await resolveShopId(req, req.v.body.shop_id);
     const id = await sale(req, shopId, req.v.body);
     res.status(201).json(await getTransaction(id, { orgId: req.auth.orgId }));
+  }
+);
+
+// Déclaration de vol / perte par un marchand (confirmée si l'appareil est dans son stock).
+registryRouter.post(
+  '/report-theft',
+  requireActiveSubscription,
+  validate({
+    body: z.object({
+      imei: zImei,
+      kind: z.enum(['stolen', 'lost']).default('stolen'),
+      police_report_number: z.string().trim().max(60).optional().nullable(),
+      description: z.string().trim().max(1000).optional().nullable()
+    })
+  }),
+  async (req, res) => {
+    const b = req.v.body;
+    const result = await withTransaction(async (c) => {
+      const { rows } = await c.query(
+        `SELECT d.id, d.owner_type, s.organization_id AS owner_org
+         FROM devices d LEFT JOIN shops s ON s.id = d.owner_shop_id
+         WHERE d.imei1 = $1 OR d.imei2 = $1 FOR UPDATE OF d`,
+        [b.imei]
+      );
+      const d = rows[0];
+      const ownedByOrg = Boolean(d && d.owner_type === 'shop' && d.owner_org === req.auth.orgId);
+      const org = (await c.query(`SELECT name, phone, rccm FROM organizations WHERE id = $1`, [req.auth.orgId])).rows[0];
+      const rep = await c.query(
+        `INSERT INTO theft_reports (device_id, imei, kind, reporter_name, reporter_phone, id_doc_type, id_doc_number,
+                                    police_report_number, description, status, auto_confirmed)
+         VALUES ($1,$2,$3,$4,$5,'MARCHAND',$6,$7,$8,$9,$10) RETURNING id`,
+        [d?.id ?? null, b.imei, b.kind, org.name, org.phone, org.rccm ?? org.name, b.police_report_number ?? null, b.description ?? null, ownedByOrg ? 'confirmed' : 'pending', ownedByOrg]
+      );
+      if (ownedByOrg) await c.query(`UPDATE devices SET status = $2 WHERE id = $1`, [d.id, b.kind]);
+      return { id: rep.rows[0].id, confirmed: ownedByOrg };
+    });
+    await audit(req, 'merchant.theft_reported', { entity: 'theft_report', entityId: result.id, meta: { kind: b.kind, confirmed: result.confirmed } });
+    res.status(201).json({
+      reference: result.id,
+      status: result.confirmed ? 'confirmed' : 'pending',
+      message: result.confirmed
+        ? 'Téléphone de votre stock signalé dans tout le réseau gaRAN.'
+        : 'Déclaration reçue. Elle sera vérifiée par l’équipe gaRAN avant le signalement réseau.'
+    });
   }
 );
 

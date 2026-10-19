@@ -429,3 +429,38 @@ test('checkout ORZAYAH : URL de paiement construite', async () => {
   assert.match(co.body.url, /merchant=0700000000/);
   assert.match(co.body.url, /amount=85000/);
 });
+
+/* ===================================================================
+ * Déclaration de vol (marchand) + registre public des téléphones volés
+ * =================================================================== */
+const IMEI_F = imei('35693803564391');
+
+test('marchand : déclaration de vol d\'un téléphone en stock + registre public', async () => {
+  // Entrée en stock d'un téléphone chez ctx.a
+  const stock = await api()
+    .post('/api/v1/transactions/stock-in')
+    .set(bearer(ctx.a.access_token))
+    .send({ device: { imei1: IMEI_F, brand_id: ctx.samsung.id, model_id: ctx.a15.id }, condition: 'new', price: 60000 });
+  assert.equal(stock.status, 201, JSON.stringify(stock.body));
+
+  // Déclaration de vol : confirmée car l'appareil est dans le stock du marchand
+  const rep = await api()
+    .post('/api/v1/report-theft')
+    .set(bearer(ctx.a.access_token))
+    .send({ imei: IMEI_F, kind: 'stolen', description: 'Vol à l’étalage' });
+  assert.equal(rep.status, 201, JSON.stringify(rep.body));
+  assert.equal(rep.body.status, 'confirmed');
+
+  // Registre public : le téléphone apparaît comme volé
+  const list = await api().get('/api/v1/public/stolen-devices');
+  assert.equal(list.status, 200);
+  assert.ok(list.body.items.some((x) => x.imei1 === IMEI_F && x.kind === 'stolen'));
+
+  // La recherche par IMEI le trouve aussi
+  const search = await api().get(`/api/v1/public/stolen-devices?q=${IMEI_F}`);
+  assert.ok(search.body.items.some((x) => x.imei1 === IMEI_F));
+
+  // Et la vérification publique le signale désormais
+  const check = await api().get(`/api/v1/public/imei/${IMEI_F}`);
+  assert.equal(check.body.result, 'reported');
+});

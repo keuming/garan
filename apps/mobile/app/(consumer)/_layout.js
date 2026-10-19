@@ -20,6 +20,7 @@ export default function ConsumerLayout() {
       <Stack.Screen name="link" options={{ title: 'Linker mon téléphone' }} />
       <Stack.Screen name="device/[id]" options={{ title: 'Mon téléphone' }} />
       <Stack.Screen name="check" options={{ title: 'Vérifier un IMEI' }} />
+      <Stack.Screen name="stolen" options={{ title: 'Téléphones volés' }} />
       <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
     </Stack>
   );

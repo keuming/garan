@@ -16,7 +16,9 @@ export const colors = {
   warn: '#A35C00',
   warnBg: '#FFF2DC',
   danger: '#C4282D',
-  dangerBg: '#FDE8E8'
+  dangerBg: '#FDE8E8',
+  blood: '#8B0000',      // rouge sang — alertes VOL
+  bloodBg: '#FBE2E2'
 };
 
 export const radius = { sm: 8, md: 12, lg: 16 };
