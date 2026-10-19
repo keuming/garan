@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BrandModelPicker } from '../../src/components/BrandModelPicker';
@@ -39,7 +39,7 @@ function Stepper({ step }) {
 export default function Sale() {
   const { user, isOwner } = useAuth();
   const qc = useQueryClient();
-  const orzayahNumber = user?.organization?.orzayah_number;
+  const linked = Boolean(user?.organization?.orzayah_linked);
 
   const [step, setStep] = useState(1);
   const activeShops = (user?.shops ?? []).filter((s) => s.status === 'active');
@@ -218,11 +218,15 @@ export default function Sale() {
                 <Text style={st.payIcon}>💵</Text>
                 <Text style={[st.payTitle, payment === 'cash' && { color: '#fff' }]}>Espèces</Text>
               </Pressable>
-              <Pressable onPress={() => setPayment('orzayah')} style={[st.pay, payment === 'orzayah' && st.payOn]}>
+              <Pressable
+                onPress={() => (linked ? setPayment('orzayah') : Alert.alert('Compte ORZAYAH non relié', 'Reliez votre compte ORZAYAH dans Mon compte pour encaisser par ORZAYAH.'))}
+                style={[st.pay, payment === 'orzayah' && st.payOn, !linked && { opacity: 0.5 }]}
+              >
                 <Text style={st.payIcon}>🟢</Text>
                 <Text style={[st.payTitle, payment === 'orzayah' && { color: '#fff' }]}>ORZAYAH</Text>
               </Pressable>
             </View>
+            {!linked ? <Muted>Pour encaisser par ORZAYAH, reliez d’abord votre compte dans Mon compte.</Muted> : null}
             {payment === 'orzayah' ? (
               <Muted>Après validation, le reçu affiche un lien et un QR de paiement ORZAYAH à faire régler par l’acheteur. La vente passe en « payée » dès la confirmation.</Muted>
             ) : null}

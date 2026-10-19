@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { query } from '../db.js';
 import { badRequest } from '../lib/errors.js';
 import { createPaymentLink, getPaymentLink, opStatus } from '../lib/orzayah.js';
+import { unseal } from '../lib/secret-box.js';
 import { logger } from '../logger.js';
 
 const PAY_BASE = (process.env.ORZAYAH_PAY_BASE ?? 'https://pay.orzayah.com/p').replace(/\/$/, '');
@@ -30,6 +31,19 @@ export async function salePaymentView(tx) {
   return { method, status: 'pending', paid: false, payment_id: row.id, payment_url: row.operator === 'LINK' && row.reference ? payUrl(row.reference) : null };
 }
 
+/** Clé API ORZAYAH du marchand : les paiements arrivent directement dans son portefeuille. */
+async function merchantApiKey(orgId) {
+  const row = (await query(`SELECT orzayah_api_key_enc FROM organizations WHERE id = $1`, [orgId])).rows[0];
+  if (!row?.orzayah_api_key_enc) {
+    throw badRequest('ORZAYAH_NOT_LINKED', 'Reliez d’abord votre compte ORZAYAH (Mon compte) pour encaisser par ORZAYAH.');
+  }
+  try {
+    return unseal(row.orzayah_api_key_enc);
+  } catch {
+    throw badRequest('ORZAYAH_KEY_UNREADABLE', 'Votre clé ORZAYAH doit être saisie à nouveau (Mon compte).');
+  }
+}
+
 /** Émet (ou renvoie) le lien de paiement ORZAYAH d'une vente. */
 export async function startSalePayment(tx) {
   if (tx.type !== 'sale' || tx.payment_method !== 'orzayah') {
@@ -38,6 +52,7 @@ export async function startSalePayment(tx) {
   const current = await salePaymentView(tx);
   if (current.status === 'paid' || (current.status === 'pending' && current.payment_url)) return current;
 
+  const apiKey = await merchantApiKey(tx.organization_id);
   const amountFcfa = Number(tx.price);
   if (!Number.isFinite(amountFcfa) || amountFcfa <= 0) throw badRequest('INVALID_AMOUNT', 'Montant de vente nul : rien à encaisser');
   const idempotencyKey = `sale-${tx.id}-${crypto.randomUUID().slice(0, 8)}`;
@@ -52,7 +67,7 @@ export async function startSalePayment(tx) {
       amount: amountFcfa * 100,
       description: `Vente ${tx.receipt_number}`.slice(0, 120),
       idempotencyKey
-    });
+    }, { apiKey });
     await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [paymentId, link.slug]);
     return { method: 'orzayah', status: 'pending', paid: false, payment_id: paymentId, payment_url: link.url ?? payUrl(link.slug) };
   } catch (err) {
@@ -67,7 +82,7 @@ export async function pollSalePayment(tx) {
   if (view.status !== 'pending' || !view.payment_id) return view;
   const row = (await query(`SELECT reference FROM orzayah_payments WHERE id = $1`, [view.payment_id])).rows[0];
   try {
-    const op = await getPaymentLink(row.reference);
+    const op = await getPaymentLink(row.reference, { apiKey: await merchantApiKey(tx.organization_id) });
     const status = opStatus(op) ?? 'PENDING';
     await query(
       `UPDATE orzayah_payments SET status = $2, failure_reason = $3, applied = (applied OR $2 = 'SUCCESS') WHERE id = $1`,

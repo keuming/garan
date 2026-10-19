@@ -177,6 +177,12 @@ registryRouter.post(
   }),
   async (req, res) => {
     const shopId = await resolveShopId(req, req.v.body.shop_id);
+    if (req.v.body.payment_method === 'orzayah') {
+      const org = (await query(`SELECT orzayah_api_key_enc FROM organizations WHERE id = $1`, [req.auth.orgId])).rows[0];
+      if (!org?.orzayah_api_key_enc) {
+        throw badRequest('ORZAYAH_NOT_LINKED', 'Reliez d’abord votre compte ORZAYAH (Mon compte) pour encaisser par ORZAYAH.');
+      }
+    }
     const id = await sale(req, shopId, req.v.body);
     res.status(201).json(await getTransaction(id, { orgId: req.auth.orgId }));
   }

@@ -21,15 +21,16 @@ const FINAL = new Set(['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'])
 export const isFinal = (s) => FINAL.has(s);
 export const isSuccess = (s) => s === 'SUCCESS';
 
-async function oz(path, { method = 'GET', body } = {}) {
-  if (!orzayahEnabled()) {
+async function oz(path, { method = 'GET', body, apiKey } = {}) {
+  const key = apiKey ?? config.ORZAYAH_API_KEY;
+  if (!config.ORZAYAH_API_URL || !key) {
     throw new AppError(503, 'ORZAYAH_NOT_CONFIGURED', 'Le paiement ORZAYAH n’est pas encore activé (clé API manquante).');
   }
   let res;
   try {
     res = await fetch(`${base()}${path}`, {
       method,
-      headers: { 'X-Api-Key': config.ORZAYAH_API_KEY, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { 'X-Api-Key': key, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(20000)
     });
@@ -95,8 +96,25 @@ export async function getBalance() {
 }
 
 /** Lien de collecte pay.orzayah.com : le payeur choisit son mode de paiement sur la page ORZAYAH. */
-export const createPaymentLink = ({ amount, description, idempotencyKey }) =>
-  oz('/payment-links', { method: 'POST', body: { amount, description, idempotencyKey } });
+export const createPaymentLink = ({ amount, description, idempotencyKey }, opts = {}) =>
+  oz('/payment-links', { method: 'POST', body: { amount, description, idempotencyKey }, apiKey: opts.apiKey });
 
 /** Statut d'un lien : PENDING tant qu'il n'est pas payé, puis statut du paiement (SUCCESS, FAILED...). */
-export const getPaymentLink = (slug) => oz(`/payment-links/${encodeURIComponent(slug)}`);
+export const getPaymentLink = (slug, opts = {}) => oz(`/payment-links/${encodeURIComponent(slug)}`, { apiKey: opts.apiKey });
+
+/**
+ * Vérifie la clé API ORZAYAH d'un marchand sans rien créer : on lit un lien inexistant.
+ * 404 = clé valide et rattachée à un marchand ; 401 = clé invalide ; 403 = clé sans marchand.
+ */
+export async function probeMerchantKey(apiKey) {
+  let res;
+  try {
+    res = await fetch(`${base()}/payment-links/PROBE000`, { headers: { 'X-Api-Key': apiKey }, signal: AbortSignal.timeout(15000) });
+  } catch {
+    throw new AppError(502, 'ORZAYAH_UNREACHABLE', 'Service ORZAYAH indisponible. Réessayez dans un instant.');
+  }
+  if (res.status === 404 || res.ok) return true;
+  if (res.status === 401) throw new AppError(400, 'ORZAYAH_KEY_INVALID', 'Clé API ORZAYAH invalide ou désactivée.');
+  if (res.status === 403) throw new AppError(400, 'ORZAYAH_KEY_NO_MERCHANT', 'Cette clé n’est rattachée à aucun marchand ORZAYAH approuvé.');
+  throw new AppError(400, 'ORZAYAH_ERROR', `Vérification impossible (erreur ${res.status}).`);
+}

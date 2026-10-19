@@ -6,7 +6,8 @@ import { hashSecret, revokeAllRefreshTokens } from '../lib/security.js';
 import { validate, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { audit } from '../lib/audit.js';
 import { requireOwner, requireUser } from '../middleware/auth.js';
-import { OPERATORS } from '../lib/orzayah.js';
+import { OPERATORS, probeMerchantKey } from '../lib/orzayah.js';
+import { seal } from '../lib/secret-box.js';
 import { initiateSubscription, pollSubscription, PLAN_FCFA } from './subscription.service.js';
 
 const zSubscribe = z.object({
@@ -37,6 +38,32 @@ orgRouter.patch(
     res.json({ orzayah_number: rows[0].orzayah_number });
   }
 );
+
+// Relie le compte ORZAYAH du marchand : sa clé API (service « Dépôt ») sert à créer les liens de paiement
+// de ses ventes, pour que l'argent arrive directement dans son portefeuille. Stockée chiffrée, jamais renvoyée.
+orgRouter.patch(
+  '/orzayah-key',
+  validate({ body: z.object({ api_key: z.string().trim().min(16).max(200) }) }),
+  async (req, res) => {
+    const key = req.v.body.api_key;
+    await probeMerchantKey(key);
+    await query(
+      `UPDATE organizations SET orzayah_api_key_enc = $2, orzayah_api_key_last4 = $3, orzayah_linked_at = now() WHERE id = $1`,
+      [req.auth.orgId, seal(key), key.slice(-4)]
+    );
+    await audit(req, 'org.orzayah_linked', { entity: 'organization', entityId: req.auth.orgId });
+    res.json({ linked: true, last4: key.slice(-4) });
+  }
+);
+
+orgRouter.delete('/orzayah-key', async (req, res) => {
+  await query(
+    `UPDATE organizations SET orzayah_api_key_enc = NULL, orzayah_api_key_last4 = NULL, orzayah_linked_at = NULL WHERE id = $1`,
+    [req.auth.orgId]
+  );
+  await audit(req, 'org.orzayah_unlinked', { entity: 'organization', entityId: req.auth.orgId });
+  res.json({ linked: false });
+});
 
 /* ---------------------- Abonnement (paiement ORZAYAH) ---------------------- */
 

@@ -17,6 +17,15 @@ export default function Account() {
     mutationFn: () => api.patch('/org/profile', { orzayah_number: orzayah || null }),
     onSuccess: async () => { await reloadUser?.(); Alert.alert('Enregistré', 'Votre numéro ORZAYAH est à jour.'); }
   });
+  const [ozKey, setOzKey] = useState('');
+  const linkKey = useMutation({
+    mutationFn: () => api.patch('/org/orzayah-key', { api_key: ozKey.trim() }),
+    onSuccess: async () => { setOzKey(''); await reloadUser?.(); Alert.alert('Compte relié', 'Les paiements ORZAYAH de vos ventes arriveront directement sur votre compte ORZAYAH.'); }
+  });
+  const unlinkKey = useMutation({
+    mutationFn: () => api.del('/org/orzayah-key'),
+    onSuccess: async () => { await reloadUser?.(); }
+  });
   const change = useMutation({
     mutationFn: () => api.post('/auth/me/pin', { current_pin: cur, new_pin: next }),
     onSuccess: () => {
@@ -55,6 +64,26 @@ export default function Account() {
           <Input label="Identifiant marchand ORZAYAH" value={orzayah} onChangeText={(t) => setOrzayah(t.replace(/\s/g, ''))} keyboardType="phone-pad" placeholder="Ex. 0700000000" />
           <Muted>Sert à recevoir les paiements digitaux de vos ventes sur votre compte ORZAYAH.</Muted>
           <Button title="Enregistrer l’identifiant ORZAYAH" variant="secondary" onPress={() => saveOrzayah.mutate()} loading={saveOrzayah.isPending} />
+        </Card>
+      ) : null}
+
+      {isOwner ? (
+        <Card>
+          <Muted>Encaissement ORZAYAH des ventes</Muted>
+          {org?.orzayah_linked ? (
+            <>
+              <Banner tone="ok" title="Compte ORZAYAH relié">Clé se terminant par {org.orzayah_key_last4}. Les paiements de vos clients arrivent directement dans votre portefeuille ORZAYAH.</Banner>
+              <ErrorBanner error={unlinkKey.error} />
+              <Button title="Délier mon compte ORZAYAH" variant="secondary" onPress={() => Alert.alert('Délier ?', 'Vous ne pourrez plus encaisser par ORZAYAH tant que vous ne l’aurez pas relié à nouveau.', [{ text: 'Annuler', style: 'cancel' }, { text: 'Délier', style: 'destructive', onPress: () => unlinkKey.mutate() }])} loading={unlinkKey.isPending} />
+            </>
+          ) : (
+            <>
+              <Muted>1. Dans votre espace marchand ORZAYAH, demandez l’accès API avec le service « Dépôt ». 2. Après validation, copiez votre clé API et collez-la ci-dessous. Elle est chiffrée et ne s’affichera plus.</Muted>
+              <ErrorBanner error={linkKey.error} />
+              <Input label="Clé API ORZAYAH" value={ozKey} onChangeText={setOzKey} secureTextEntry autoCapitalize="none" autoCorrect={false} placeholder="Collez votre clé" />
+              <Button title="Relier mon compte ORZAYAH" onPress={() => linkKey.mutate()} loading={linkKey.isPending} disabled={ozKey.trim().length < 16} />
+            </>
+          )}
         </Card>
       ) : null}
 
