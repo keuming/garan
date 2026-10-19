@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { query, withTransaction } from '../db.js';
 import { notFound } from '../lib/errors.js';
-import { createDeposit, getOperation, opReference, opStatus, opNextAction } from '../lib/orzayah.js';
+import { createDeposit, getOperation, createPaymentLink, getPaymentLink, opReference, opStatus, opNextAction } from '../lib/orzayah.js';
 import { logger } from '../logger.js';
 
 /* Tarifs d'abonnement, en FCFA par mois. */
@@ -16,6 +16,35 @@ export async function initiateSubscription({ subjectType, subjectId, months = 1,
   const amountCentimes = amountFcfa * 100;
   const purpose = subjectType === 'organization' ? 'subscription_merchant' : 'subscription_consumer';
   const idempotencyKey = `sub-${subjectType.slice(0, 4)}-${crypto.randomUUID()}`;
+
+  // Mode lien (par defaut) : pas de numero a saisir, le payeur regle sur la page pay.orzayah.com.
+  if (!operator || !accountNumber) {
+    const ins = await query(
+      `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, account_number, status)
+       VALUES ($1,$2,$3,$4,$5,$6,'LINK',NULL,'INITIATED') RETURNING id`,
+      [idempotencyKey, purpose, subjectType, subjectId, amountCentimes, months]
+    );
+    const linkPaymentId = ins.rows[0].id;
+    try {
+      const link = await createPaymentLink({
+        amount: amountCentimes,
+        description: `Abonnement gaRAN ${months} mois`,
+        idempotencyKey
+      });
+      await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [linkPaymentId, link.slug]);
+      return {
+        payment_id: linkPaymentId,
+        status: 'PENDING',
+        amount_fcfa: amountFcfa,
+        months,
+        payment_url: link.url,
+        next_action: { type: 'REDIRECT', url: link.url, message: 'Finalisez le paiement sur la page sécurisée ORZAYAH.' }
+      };
+    } catch (err) {
+      await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [linkPaymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
+      throw err;
+    }
+  }
 
   const { rows } = await query(
     `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, account_number, status)
@@ -81,7 +110,7 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
 
   let op;
   try {
-    op = await getOperation(row.reference ?? row.idempotency_key);
+    op = row.operator === 'LINK' ? await getPaymentLink(row.reference) : await getOperation(row.reference ?? row.idempotency_key);
   } catch (err) {
     if (row.operator !== 'LINK' && (err.status === 404 || /introuvable/i.test(err.message || ''))) {
       await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, 'Ancien paiement introuvable chez ORZAYAH']);
@@ -91,7 +120,7 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
     return { status: row.status, applied: false, expires_at: null, pending: true };
   }
   const status = opStatus(op) ?? row.status;
-  await query(`UPDATE orzayah_payments SET status = $2, failure_reason = $3 WHERE id = $1`, [paymentId, status, op.failureReason ?? op.failure_reason ?? null]);
+  await query(`UPDATE orzayah_payments SET status = $2, failure_reason = $3 WHERE id = $1`, [paymentId, status, op.failureReason ?? op.transaction?.failureReason ?? op.failure_reason ?? null]);
 
   if (status !== 'SUCCESS') return { status, applied: false, expires_at: null };
 
