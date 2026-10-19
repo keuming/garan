@@ -41,7 +41,7 @@ export function Wordmark({ size = 28, light = false }) {
   return (
     <Text style={{ fontSize: size, letterSpacing: -0.5 }} accessibilityLabel="gaRAN">
       <Text style={{ fontWeight: '500', color: light ? '#fff' : colors.navy }}>ga</Text>
-      <Text style={{ fontWeight: '800', color: light ? '#4D8DFF' : colors.blue }}>RAN</Text>
+      <Text style={{ fontWeight: '800', color: colors.green }}>RAN</Text>
     </Text>
   );
 }

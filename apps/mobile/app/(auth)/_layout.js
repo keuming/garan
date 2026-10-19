@@ -3,8 +3,9 @@ import { useAuth } from '../../src/lib/auth';
 import { colors } from '../../src/lib/theme';
 
 export default function AuthLayout() {
-  const { user, ready } = useAuth();
-  if (ready && user) return <Redirect href="/home" />;
+  const { ready, isConsumer, isMerchant } = useAuth();
+  if (ready && isConsumer) return <Redirect href="/(consumer)/home" />;
+  if (ready && isMerchant) return <Redirect href="/home" />;
   return (
     <Stack
       screenOptions={{
@@ -14,8 +15,9 @@ export default function AuthLayout() {
         headerBackTitle: 'Retour'
       }}
     >
-      <Stack.Screen name="login" options={{ headerShown: false }} />
-      <Stack.Screen name="register" options={{ title: 'Créer mon magasin' }} />
+      <Stack.Screen name="welcome" options={{ headerShown: false }} />
+      <Stack.Screen name="login" options={{ title: 'Connexion' }} />
+      <Stack.Screen name="register" options={{ title: 'Créer un compte' }} />
     </Stack>
   );
 }

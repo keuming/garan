@@ -3,8 +3,9 @@ import { useAuth } from '../../src/lib/auth';
 import { colors } from '../../src/lib/theme';
 
 export default function AppLayout() {
-  const { user, ready } = useAuth();
-  if (ready && !user) return <Redirect href="/login" />;
+  const { ready, isMerchant, isConsumer } = useAuth();
+  if (ready && isConsumer) return <Redirect href="/(consumer)/home" />;
+  if (ready && !isMerchant) return <Redirect href="/welcome" />;
   return (
     <Stack
       screenOptions={{
@@ -23,6 +24,7 @@ export default function AppLayout() {
       <Stack.Screen name="stats" options={{ title: 'États des ventes' }} />
       <Stack.Screen name="shops" options={{ title: 'Mes magasins' }} />
       <Stack.Screen name="users" options={{ title: 'Comptes vendeurs' }} />
+      <Stack.Screen name="supervision" options={{ title: 'Mes sous-marchands' }} />
       <Stack.Screen name="account" options={{ title: 'Mon compte' }} />
     </Stack>
   );

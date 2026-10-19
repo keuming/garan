@@ -3,8 +3,10 @@ import * as SecureStore from 'expo-secure-store';
 
 const BASE = `${String(Constants.expoConfig?.extra?.apiUrl ?? '').replace(/\/$/, '')}/api/v1`;
 const REFRESH_KEY = 'garan.refresh';
+const KIND_KEY = 'garan.kind'; // 'merchant' (marchand/super marchand) | 'consumer' (usager)
 
 let accessToken = null;
+let kind = null;
 let refreshing = null;
 let onSessionLost = () => {};
 
@@ -17,15 +19,23 @@ export class ApiError extends Error {
   }
 }
 
+export const REFRESH_PATH = { merchant: '/auth/refresh', consumer: '/consumer/auth/refresh' };
+export const LOGOUT_PATH = { merchant: '/auth/logout', consumer: '/consumer/auth/logout' };
+
 export const tokens = {
-  async set({ access_token: a, refresh_token: r }) {
+  async set(k, { access_token: a, refresh_token: r }) {
+    kind = k;
     accessToken = a;
+    await SecureStore.setItemAsync(KIND_KEY, k);
     if (r) await SecureStore.setItemAsync(REFRESH_KEY, r);
   },
+  getKind: () => (kind ? Promise.resolve(kind) : SecureStore.getItemAsync(KIND_KEY)),
   getRefresh: () => SecureStore.getItemAsync(REFRESH_KEY),
   async clear() {
     accessToken = null;
+    kind = null;
     await SecureStore.deleteItemAsync(REFRESH_KEY);
+    await SecureStore.deleteItemAsync(KIND_KEY);
   },
   onSessionLost(fn) {
     onSessionLost = fn;
@@ -33,9 +43,9 @@ export const tokens = {
 };
 
 async function doRefresh() {
-  const token = await tokens.getRefresh();
-  if (!token) throw new ApiError(401, 'UNAUTHORIZED', 'Session expirée');
-  const res = await fetch(`${BASE}/auth/refresh`, {
+  const [k, token] = await Promise.all([tokens.getKind(), tokens.getRefresh()]);
+  if (!k || !token) throw new ApiError(401, 'UNAUTHORIZED', 'Session expirée');
+  const res = await fetch(`${BASE}${REFRESH_PATH[k]}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: token })
@@ -45,7 +55,7 @@ async function doRefresh() {
     onSessionLost();
     throw new ApiError(401, 'UNAUTHORIZED', 'Session expirée, reconnectez-vous');
   }
-  await tokens.set(await res.json());
+  await tokens.set(k, await res.json());
 }
 
 export function refreshSession() {
@@ -61,11 +71,7 @@ async function request(path, { method = 'GET', body, form, auth = true, retry = 
   if (auth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, {
-      method,
-      headers,
-      body: form ?? (body === undefined ? undefined : JSON.stringify(body))
-    });
+    res = await fetch(`${BASE}${path}`, { method, headers, body: form ?? (body === undefined ? undefined : JSON.stringify(body)) });
   } catch {
     throw new ApiError(0, 'NETWORK', 'Pas de connexion internet. Vérifiez votre réseau et réessayez.');
   }
@@ -87,17 +93,18 @@ const qs = (params = {}) => {
   return parts.length ? `?${parts.join('&')}` : '';
 };
 
+async function uploadTo(path, uri) {
+  const f = new FormData();
+  f.append('file', { uri, name: 'photo.jpg', type: 'image/jpeg' });
+  const { key } = await request(path, { method: 'POST', form: f });
+  return key;
+}
+
 export const api = {
   get: (path, params) => request(path + qs(params)),
   post: (path, body) => request(path, { method: 'POST', body: body ?? {} }),
   patch: (path, body) => request(path, { method: 'PATCH', body }),
   publicPost: (path, body) => request(path, { method: 'POST', body, auth: false }),
-
-  /** Téléverse une photo de pièce d'identité ; renvoie la clé de stockage. */
-  async uploadIdPhoto(uri) {
-    const form = new FormData();
-    form.append('file', { uri, name: 'piece.jpg', type: 'image/jpeg' });
-    const { key } = await request('/uploads/id-document', { method: 'POST', form });
-    return key;
-  }
+  uploadIdPhoto: (uri) => uploadTo('/uploads/id-document', uri),
+  uploadConsumerDoc: (uri) => uploadTo('/consumer/uploads', uri)
 };

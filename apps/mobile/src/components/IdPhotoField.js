@@ -11,7 +11,7 @@ import { Button, Label, Muted } from './ui';
  * L'image est redimensionnée (1600 px) et compressée avant envoi pour économiser la data mobile,
  * puis téléversée immédiatement : `onUploaded(key)` reçoit la clé de stockage.
  */
-export function IdPhotoField({ label, uploadedKey, onUploaded }) {
+export function IdPhotoField({ label, uploadedKey, onUploaded, uploader = api.uploadIdPhoto, aspectRatio = 1.58 }) {
   const [uri, setUri] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -31,7 +31,7 @@ export function IdPhotoField({ label, uploadedKey, onUploaded }) {
       const asset = res.assets[0];
       const resize = asset.width > 1600 ? [{ resize: { width: 1600 } }] : [];
       const small = await manipulateAsync(asset.uri, resize, { compress: 0.7, format: SaveFormat.JPEG });
-      const key = await api.uploadIdPhoto(small.uri);
+      const key = await uploader(small.uri);
       setUri(small.uri);
       onUploaded(key);
     } catch (e) {
@@ -45,9 +45,9 @@ export function IdPhotoField({ label, uploadedKey, onUploaded }) {
     <View style={{ gap: 8, flex: 1 }}>
       <Label>{label}</Label>
       {uri ? (
-        <Image source={{ uri }} style={{ width: '100%', aspectRatio: 1.58, borderRadius: radius.md, backgroundColor: colors.line }} accessibilityLabel={label} />
+        <Image source={{ uri }} style={{ width: '100%', aspectRatio, borderRadius: radius.md, backgroundColor: colors.line }} accessibilityLabel={label} />
       ) : (
-        <View style={{ width: '100%', aspectRatio: 1.58, borderRadius: radius.md, borderWidth: 2, borderStyle: 'dashed', borderColor: uploadedKey ? colors.ok : colors.line, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: '100%', aspectRatio, borderRadius: radius.md, borderWidth: 2, borderStyle: 'dashed', borderColor: uploadedKey ? colors.ok : colors.line, alignItems: 'center', justifyContent: 'center' }}>
           <Muted>{uploadedKey ? '✓ Enregistrée' : 'Aucune photo'}</Muted>
         </View>
       )}

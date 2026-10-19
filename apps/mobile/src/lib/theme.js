@@ -1,9 +1,10 @@
 export const colors = {
-  blue: '#1463F3',
-  blueDark: '#0F4FD0',
-  blueSoft: '#EAF1FF',
+  green: '#00D27A',   // vert de marque ORZAYAH (accent, logo « RAN », points forts)
+  blue: '#00B368',    // vert interactif (boutons/tuiles avec texte blanc lisible) — famille ORZAYAH
+  blueDark: '#009152',
+  blueSoft: '#E3FBEF',
   navy: '#0A1F44',
-  cyan: '#22B8F0',
+  cyan: '#0FB5A0',    // teal secondaire (tuile « entrée en stock »)
   ink: '#0A1F44',
   ink2: '#4A5878',
   ink3: '#7A86A1',

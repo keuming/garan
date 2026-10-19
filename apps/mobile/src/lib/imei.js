@@ -15,12 +15,24 @@ export function isValidImei(imei) {
   return sum % 10 === 0;
 }
 
-/** Extrait un IMEI valide d'un code-barres scanné (boîte, étiquette, *#06#). */
+/**
+ * Extrait un IMEI valide d'un code-barres scanné (boîte, étiquette, *#06#).
+ * Tolérant : balaie chaque suite de chiffres par fenêtre de 15, puis l'ensemble
+ * des chiffres concaténés, car les étiquettes mêlent souvent IMEI, n° de série et texte.
+ */
 export function extractImei(data) {
-  const runs = String(data ?? '').match(/\d{15,17}/g) ?? [];
-  for (const r of runs) {
-    const candidate = r.slice(0, 15);
-    if (isValidImei(candidate)) return candidate;
+  const s = String(data ?? '');
+  const groups = s.match(/\d{14,}/g) ?? [];
+  for (const g of groups) {
+    for (let i = 0; i + 15 <= g.length; i += 1) {
+      const cand = g.slice(i, i + 15);
+      if (isValidImei(cand)) return cand;
+    }
+  }
+  const all = s.replace(/\D/g, '');
+  for (let i = 0; i + 15 <= all.length; i += 1) {
+    const cand = all.slice(i, i + 15);
+    if (isValidImei(cand)) return cand;
   }
   return null;
 }

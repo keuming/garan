@@ -1,48 +1,45 @@
 /**
- * Une seule base de code, deux applications publiées :
- *  - APP_VARIANT=shop        → « gaRAN Magasin »     (ventes, rachats, entrées en stock)
- *  - APP_VARIANT=supervisor  → « gaRAN Superviseur » (grossiste : magasins, comptes, états consolidés)
+ * Application gaRAN unique (un seul APK). Le profil — marchand, super marchand
+ * ou usager — est choisi à l'inscription et à la connexion, pas au build.
  */
-const variant = process.env.APP_VARIANT === 'supervisor' ? 'supervisor' : 'shop';
-const isSupervisor = variant === 'supervisor';
-// APK de test sur réseau local : autorise http:// (interdit par défaut par Android)
-const allowCleartext = process.env.ALLOW_CLEARTEXT === 'true';
+const allowCleartext = process.env.ALLOW_CLEARTEXT === 'true'; // APK de test sur réseau local (http://)
+
+// ID du projet EAS. Après `eas init`, collez l'identifiant affiché entre les quotes ci-dessous
+// (ex. '12345678-abcd-...'), ou laissez `eas init` le renseigner automatiquement.
+const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID ?? 'fbd41f42-d764-40bf-a13e-6abc2e602848';
 
 export default {
   expo: {
-    name: isSupervisor ? 'gaRAN Superviseur' : 'gaRAN Magasin',
-    slug: isSupervisor ? 'garan-superviseur' : 'garan-magasin',
-    scheme: isSupervisor ? 'garansup' : 'garan',
+    name: 'gaRAN',
+    slug: 'garan',
+    scheme: 'garan',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
-    splash: { image: './assets/splash.png', resizeMode: 'contain', backgroundColor: '#1463F3' },
+    splash: { image: './assets/splash.png', resizeMode: 'contain', backgroundColor: '#00D27A' },
     ios: {
-      bundleIdentifier: isSupervisor ? 'com.orzayah.garan.supervisor' : 'com.orzayah.garan.shop',
+      bundleIdentifier: 'com.orzayah.garan',
       supportsTablet: true,
-      infoPlist: {
-        NSCameraUsageDescription: 'La caméra sert à scanner l’IMEI et à photographier la pièce d’identité du client.'
-      }
+      infoPlist: { NSCameraUsageDescription: 'La caméra sert à scanner l’IMEI et à photographier les pièces (reçu, carton, pièce d’identité).' }
     },
     android: {
-      package: isSupervisor ? 'com.orzayah.garan.supervisor' : 'com.orzayah.garan.shop',
-      adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#1463F3' },
+      package: 'com.orzayah.garan',
+      adaptiveIcon: { foregroundImage: './assets/adaptive-icon.png', backgroundColor: '#00D27A' },
       permissions: ['CAMERA']
     },
     plugins: [
       'expo-router',
       'expo-secure-store',
-      ['expo-camera', { cameraPermission: 'La caméra sert à scanner l’IMEI et à photographier la pièce d’identité du client.' }],
-      ['expo-image-picker', { cameraPermission: 'La caméra sert à photographier la pièce d’identité du client.' }],
+      ['expo-camera', { cameraPermission: 'La caméra sert à scanner l’IMEI et à photographier les pièces.' }],
+      ['expo-image-picker', { cameraPermission: 'La caméra sert à photographier les pièces (reçu, carton, pièce d’identité).' }],
       ['expo-build-properties', { android: { usesCleartextTraffic: allowCleartext } }]
     ],
     experiments: { typedRoutes: false },
     extra: {
-      variant,
       apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://garan-api.onrender.com',
-      publicWebUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://garan.ci',
-      eas: { projectId: 'REMPLACER_PAR_PROJECT_ID' }
+      publicWebUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://garan.orzayah.com',
+      eas: { projectId: EAS_PROJECT_ID || undefined }
     }
   }
 };

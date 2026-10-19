@@ -47,7 +47,8 @@ export function ImeiField({ label = 'IMEI', value, onChange, optional = false })
           <CameraView
             style={{ flex: 1 }}
             facing="back"
-            barcodeScannerSettings={{ barcodeTypes: ['code128', 'code39', 'ean13', 'qr', 'datamatrix', 'pdf417'] }}
+            autofocus="on"
+            barcodeScannerSettings={{ barcodeTypes: ['code128', 'code39', 'code93', 'ean13', 'itf14', 'qr', 'datamatrix', 'pdf417'] }}
             onBarcodeScanned={({ data }) => {
               if (handled.current) return;
               const imei = extractImei(data);
@@ -55,6 +56,8 @@ export function ImeiField({ label = 'IMEI', value, onChange, optional = false })
                 handled.current = true;
                 onChange(imei);
                 setScanning(false);
+              } else if (/\d/.test(String(data ?? ''))) {
+                setScanError('Code lu, mais aucun IMEI valide reconnu. Approchez-vous du code-barres « IMEI » ou saisissez-le à la main.');
               }
             }}
           />
@@ -62,7 +65,7 @@ export function ImeiField({ label = 'IMEI', value, onChange, optional = false })
             <View style={st.frame} />
           </View>
           <View style={{ padding: 16, gap: 12 }}>
-            <Banner tone="info">Visez le code-barres « IMEI » sur la boîte ou l’étiquette du téléphone.</Banner>
+            {scanError ? <Banner tone="warn">{scanError}</Banner> : <Banner tone="info">Visez le code-barres « IMEI » sur la boîte ou l’étiquette du téléphone. Tenez le téléphone stable à ~10 cm.</Banner>}
             <Button title="Annuler" variant="secondary" onPress={() => setScanning(false)} />
           </View>
         </SafeAreaView>

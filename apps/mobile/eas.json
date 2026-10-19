@@ -5,40 +5,18 @@
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": {
-        "APP_VARIANT": "shop",
-        "ALLOW_CLEARTEXT": "true",
-        "EXPO_PUBLIC_API_URL": "http://192.168.1.5:4000",
-        "EXPO_PUBLIC_WEB_URL": "http://192.168.1.5:5173"
-      }
-    },
-    "preview-supervisor": {
-      "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": {
-        "APP_VARIANT": "supervisor",
-        "ALLOW_CLEARTEXT": "true",
-        "EXPO_PUBLIC_API_URL": "http://192.168.1.5:4000",
-        "EXPO_PUBLIC_WEB_URL": "http://192.168.1.5:5173"
-      }
-    },
-    "shop": {
-      "android": { "buildType": "app-bundle" },
-      "autoIncrement": true,
-      "env": {
-        "APP_VARIANT": "shop",
         "EXPO_PUBLIC_API_URL": "https://garan-api.onrender.com",
-        "EXPO_PUBLIC_WEB_URL": "https://garan.ci"
+        "EXPO_PUBLIC_WEB_URL": "https://garan.orzayah.com"
       }
     },
-    "supervisor": {
-      "android": { "buildType": "app-bundle" },
+    "production": {
       "autoIncrement": true,
+      "android": { "buildType": "app-bundle" },
       "env": {
-        "APP_VARIANT": "supervisor",
         "EXPO_PUBLIC_API_URL": "https://garan-api.onrender.com",
-        "EXPO_PUBLIC_WEB_URL": "https://garan.ci"
+        "EXPO_PUBLIC_WEB_URL": "https://garan.orzayah.com"
       }
     }
   },
-  "submit": { "shop": {}, "supervisor": {} }
+  "submit": { "production": {} }
 }
