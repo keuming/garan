@@ -9,6 +9,7 @@ import { audit } from '../lib/audit.js';
 import { validate, zEmail, zImei, zPagination, zText, zUuid } from '../lib/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getBalance, orzayahEnabled } from '../lib/orzayah.js';
+import { ensureBlockRequest, blockRequestText } from './block-request.service.js';
 
 /**
  * Back-office du promoteur gaRAN.
@@ -559,6 +560,16 @@ adminRouter.patch(
         } else {
           await c.query(`UPDATE devices SET status = $2 WHERE id = $1`, [deviceId, r.kind]);
         }
+        // Vol confirmé → prépare la demande de blocage opérateur (suivie au back-office).
+        await ensureBlockRequest(c, {
+          deviceId,
+          theftReportId: r.id,
+          imei: r.imei,
+          ownerName: r.reporter_name,
+          ownerPhone: r.reporter_phone,
+          policeReportNumber: r.police_report_number,
+          createdBy: req.auth.sub
+        });
       } else if (status === 'resolved' && deviceId) {
         await c.query(`UPDATE devices SET status = 'active' WHERE id = $1`, [deviceId]);
       }
@@ -571,6 +582,101 @@ adminRouter.patch(
     });
     await audit(req, `admin.theft_report_${status}`, { entity: 'theft_report', entityId: report.id });
     res.json(report);
+  }
+);
+
+/* ------------------- Demandes de blocage opérateur (IMEI) ------------------- */
+const zBlockStatus = z.enum(['requested', 'transmitted', 'blocked', 'rejected']);
+
+adminRouter.get(
+  '/block-requests',
+  requireAdmin(...STAFF, 'police'),
+  validate({ query: z.object({ status: zBlockStatus.optional(), ...zPagination }) }),
+  async (req, res) => {
+    const { status, limit, offset } = req.v.query;
+    const params = [];
+    const cond = [];
+    if (status) {
+      params.push(status);
+      cond.push(`br.status = $${params.length}`);
+    }
+    const where = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
+    const countParams = [...params];
+    params.push(limit, offset);
+    const [items, total] = await Promise.all([
+      query(
+        `SELECT br.*, a.full_name AS created_by_name
+         FROM block_requests br LEFT JOIN admins a ON a.id = br.created_by
+         ${where} ORDER BY br.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params
+      ),
+      query(`SELECT count(*)::int AS n FROM block_requests br ${where}`, countParams)
+    ]);
+    res.json({ items: items.rows, total: total.rows[0].n });
+  }
+);
+
+adminRouter.get(
+  '/block-requests/:id',
+  requireAdmin(...STAFF, 'police'),
+  validate({ params: z.object({ id: zUuid }) }),
+  async (req, res) => {
+    const { rows } = await query(
+      `SELECT br.*, a.full_name AS created_by_name FROM block_requests br LEFT JOIN admins a ON a.id = br.created_by WHERE br.id = $1`,
+      [req.v.params.id]
+    );
+    if (!rows[0]) throw notFound('Demande de blocage introuvable');
+    res.json({ ...rows[0], request_text: blockRequestText(rows[0]) });
+  }
+);
+
+adminRouter.patch(
+  '/block-requests/:id',
+  requireAdmin(...STAFF, 'police'),
+  validate({
+    params: z.object({ id: zUuid }),
+    body: z.object({
+      status: zBlockStatus,
+      operator: z.string().trim().max(60).optional().nullable(),
+      operator_reference: z.string().trim().max(120).optional().nullable(),
+      note: z.string().trim().max(1000).optional().nullable()
+    })
+  }),
+  async (req, res) => {
+    const b = req.v.body;
+    const { rows } = await query(
+      `UPDATE block_requests
+       SET status = $2,
+           operator = COALESCE($3, operator),
+           operator_reference = COALESCE($4, operator_reference),
+           note = COALESCE($5, note),
+           transmitted_at = CASE WHEN $2 = 'transmitted' AND transmitted_at IS NULL THEN now() ELSE transmitted_at END,
+           blocked_at = CASE WHEN $2 = 'blocked' AND blocked_at IS NULL THEN now() ELSE blocked_at END,
+           updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [req.v.params.id, b.status, b.operator ?? null, b.operator_reference ?? null, b.note ?? null]
+    );
+    if (!rows[0]) throw notFound('Demande de blocage introuvable');
+    await audit(req, `admin.block_request_${b.status}`, { entity: 'block_request', entityId: rows[0].id });
+    res.json({ ...rows[0], request_text: blockRequestText(rows[0]) });
+  }
+);
+
+adminRouter.post(
+  '/block-requests',
+  requireAdmin(...STAFF, 'police'),
+  validate({ body: z.object({ imei: zImei, police_report_number: z.string().trim().max(60).optional().nullable() }) }),
+  async (req, res) => {
+    const dev = (await query(`SELECT id FROM devices WHERE imei1 = $1 OR imei2 = $1`, [req.v.body.imei])).rows[0];
+    const created = await ensureBlockRequest(null, {
+      deviceId: dev?.id ?? null,
+      imei: req.v.body.imei,
+      policeReportNumber: req.v.body.police_report_number ?? null,
+      createdBy: req.auth.sub
+    });
+    if (!created) throw conflict('BLOCK_REQUEST_OPEN', 'Une demande de blocage est déjà ouverte pour cet appareil.');
+    await audit(req, 'admin.block_request_created', { entity: 'block_request', entityId: created.id });
+    res.status(201).json({ ...created, request_text: blockRequestText(created) });
   }
 );
 

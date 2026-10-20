@@ -486,3 +486,22 @@ test('abonnement : tarif marchand et garde-fou sans clé ORZAYAH', async () => {
   assert.equal(bal.status, 200);
   assert.equal(bal.body.configured, false);
 });
+
+test('back-office : demande de blocage operateur generee et suivie', async () => {
+  const t = (await api().post('/api/v1/auth/admin/login').send({ email: 'ADMIN@garan.ci', password: 'MotDePasse!2026' })).body.access_token;
+  const list = await api().get('/api/v1/admin/block-requests').set(bearer(t));
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  const br = list.body.items.find((x) => x.imei === IMEI_F);
+  assert.ok(br, 'demande de blocage creee pour le telephone vole');
+  assert.equal(br.status, 'requested');
+  const detail = await api().get(`/api/v1/admin/block-requests/${br.id}`).set(bearer(t));
+  assert.equal(detail.status, 200);
+  assert.ok(detail.body.request_text.includes(IMEI_F));
+  const trans = await api().patch(`/api/v1/admin/block-requests/${br.id}`).set(bearer(t)).send({ status: 'transmitted', operator: 'Orange CI' });
+  assert.equal(trans.status, 200, JSON.stringify(trans.body));
+  assert.equal(trans.body.status, 'transmitted');
+  assert.ok(trans.body.transmitted_at);
+  const blocked = await api().patch(`/api/v1/admin/block-requests/${br.id}`).set(bearer(t)).send({ status: 'blocked', operator_reference: 'OPS-2026-001' });
+  assert.equal(blocked.body.status, 'blocked');
+  assert.ok(blocked.body.blocked_at);
+});

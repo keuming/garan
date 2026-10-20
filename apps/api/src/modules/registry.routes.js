@@ -31,6 +31,7 @@ import {
   stockIn
 } from './registry.service.js';
 import { pollSalePayment, startSalePayment } from './sale-payment.service.js';
+import { ensureBlockRequest } from './block-request.service.js';
 
 export const registryRouter = Router();
 registryRouter.use(requireUser);
@@ -219,7 +220,18 @@ registryRouter.post(
          VALUES ($1,$2,$3,$4,$5,'MARCHAND',$6,$7,$8,$9,$10) RETURNING id`,
         [d?.id ?? null, b.imei, b.kind, org.name, org.phone, org.rccm ?? org.name, b.police_report_number ?? null, b.description ?? null, ownedByOrg ? 'confirmed' : 'pending', ownedByOrg]
       );
-      if (ownedByOrg) await c.query(`UPDATE devices SET status = $2 WHERE id = $1`, [d.id, b.kind]);
+      if (ownedByOrg) {
+        await c.query(`UPDATE devices SET status = $2 WHERE id = $1`, [d.id, b.kind]);
+        // Vol confirmé → prépare la demande de blocage opérateur (suivie au back-office).
+        await ensureBlockRequest(c, {
+          deviceId: d.id,
+          theftReportId: rep.rows[0].id,
+          imei: b.imei,
+          ownerName: org.name,
+          ownerPhone: org.phone,
+          policeReportNumber: b.police_report_number ?? null
+        });
+      }
       return { id: rep.rows[0].id, confirmed: ownedByOrg };
     });
     await audit(req, 'merchant.theft_reported', { entity: 'theft_report', entityId: result.id, meta: { kind: b.kind, confirmed: result.confirmed } });
