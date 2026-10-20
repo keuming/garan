@@ -505,3 +505,21 @@ test('back-office : demande de blocage operateur generee et suivie', async () =>
   assert.equal(blocked.body.status, 'blocked');
   assert.ok(blocked.body.blocked_at);
 });
+
+test('back-office : SIM apres vol, connexions et blocages visibles sur la fiche appareil', async () => {
+  const t = (await api().post('/api/v1/auth/admin/login').send({ email: 'ADMIN@garan.ci', password: 'MotDePasse!2026' })).body.access_token;
+  const dev = (await pool.query(`SELECT id FROM devices WHERE imei1 = $1`, [IMEI_F])).rows[0];
+  assert.ok(dev, 'appareil IMEI_F present');
+  await pool.query(
+    `INSERT INTO sim_events (device_id, sim_id, phone_number, operator, ip, after_theft) VALUES ($1, 'SIM-X', '0700009999', 'MTN', '1.2.3.4', true)`,
+    [dev.id]
+  );
+  const list = await api().get('/api/v1/admin/sim-events?after_theft=1').set(bearer(t));
+  assert.equal(list.status, 200, JSON.stringify(list.body));
+  assert.ok(list.body.items.some((x) => x.sim_id === 'SIM-X' && x.after_theft));
+  const inv = await api().get(`/api/v1/admin/devices/${IMEI_F}`).set(bearer(t));
+  assert.equal(inv.status, 200);
+  assert.ok(Array.isArray(inv.body.sim_events) && inv.body.sim_events.some((x) => x.sim_id === 'SIM-X'));
+  assert.ok(Array.isArray(inv.body.connections));
+  assert.ok(Array.isArray(inv.body.block_requests));
+});

@@ -247,6 +247,7 @@ consumerRouter.post(
   validate({
     body: z.object({
       sim_id: z.string().trim().min(3).max(64),
+      imei: zImei.optional().nullable(),
       new_number: z.string().trim().max(20).optional().nullable(),
       operator: z.string().trim().max(40).optional().nullable()
     })
@@ -255,13 +256,39 @@ consumerRouter.post(
     const c = (await query(`SELECT id, full_name, email, emergency_number, last_sim_id FROM consumers WHERE id = $1`, [req.auth.sub])).rows[0];
     if (!c) throw notFound('Compte introuvable');
     const prev = c.last_sim_id;
-    const changed = Boolean(prev) && prev !== req.v.body.sim_id;
-    await query(`UPDATE consumers SET last_sim_id = $2 WHERE id = $1`, [req.auth.sub, req.v.body.sim_id]);
+    const simId = req.v.body.sim_id;
+    const changed = Boolean(prev) && prev !== simId;
+
+    // Appareil concerné (si l'app fournit l'IMEI) + contexte « après vol »
+    let device = null;
+    if (req.v.body.imei) {
+      device = (await query(`SELECT id, status FROM devices WHERE imei1 = $1 OR imei2 = $1`, [req.v.body.imei])).rows[0] ?? null;
+    }
+    let afterTheft = Boolean(device && REPORTED.has(device.status));
+    if (!device) {
+      const any = await query(
+        `SELECT 1 FROM device_registrations r JOIN devices d ON d.id = r.device_id
+         WHERE r.consumer_id = $1 AND r.status = 'active' AND d.status IN ('stolen', 'lost', 'blocked') LIMIT 1`,
+        [req.auth.sub]
+      );
+      afterTheft = any.rowCount > 0;
+    }
+
+    await query(`UPDATE consumers SET last_sim_id = $2 WHERE id = $1`, [req.auth.sub, simId]);
+
+    // On trace la SIM si elle change, ou dès qu'elle apparaît sur un appareil volé (traçabilité back-office).
+    if (changed || afterTheft) {
+      await query(
+        `INSERT INTO sim_events (consumer_id, device_id, sim_id, phone_number, operator, ip, after_theft)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [req.auth.sub, device?.id ?? null, simId, req.v.body.new_number ?? null, req.v.body.operator ?? null, req.ip ?? null, afterTheft]
+      );
+    }
     if (changed) {
-      await audit(req, 'consumer.sim_change', { entity: 'consumer', entityId: req.auth.sub, meta: { operator: req.v.body.operator ?? null } });
+      await audit(req, 'consumer.sim_change', { entity: 'consumer', entityId: req.auth.sub, meta: { operator: req.v.body.operator ?? null, after_theft: afterTheft } });
       await alertSimChange({ consumer: c, newNumber: req.v.body.new_number, operator: req.v.body.operator });
     }
-    res.json({ changed, first_seen: !prev });
+    res.json({ changed, first_seen: !prev, after_theft: afterTheft });
   }
 );
 

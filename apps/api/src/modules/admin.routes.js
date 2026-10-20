@@ -371,7 +371,7 @@ adminRouter.get(
       [req.v.params.imei]
     );
     const device = rows[0] ?? null;
-    const [history, reports, alerts, owners] = await Promise.all([
+    const [history, reports, alerts, owners, simEvents, connections, blockReqs] = await Promise.all([
       device
         ? query(
             `SELECT t.id, t.receipt_number, t.type, t.condition, t.price, t.occurred_at, t.supplier_name,
@@ -413,10 +413,43 @@ adminRouter.get(
              ) chain ORDER BY at ASC`,
             [device.id]
           )
-        : { rows: [] }
+        : { rows: [] },
+      // SIM vues sur cet appareil (dont APRÈS un vol)
+      device
+        ? query(
+            `SELECT se.id, se.sim_id, se.phone_number, se.operator, se.ip, se.after_theft, se.created_at,
+                    c.full_name AS consumer_name, c.phone AS consumer_phone
+             FROM sim_events se LEFT JOIN consumers c ON c.id = se.consumer_id
+             WHERE se.device_id = $1 ORDER BY se.created_at DESC LIMIT 50`,
+            [device.id]
+          )
+        : { rows: [] },
+      // Adresses de connexion (IP) des usagers rattachés à cet appareil
+      device
+        ? query(
+            `SELECT l.action, l.ip, l.created_at, c.full_name, c.phone, c.email
+             FROM audit_logs l JOIN consumers c ON l.actor_type = 'consumer' AND c.id = l.actor_id
+             WHERE c.id IN (SELECT consumer_id FROM device_registrations WHERE device_id = $1)
+               AND l.action IN ('consumer.login', 'consumer.register', 'consumer.sim_change', 'consumer.device_registered', 'consumer.theft_reported')
+             ORDER BY l.created_at DESC LIMIT 50`,
+            [device.id]
+          )
+        : { rows: [] },
+      // Demandes de blocage opérateur pour cet appareil
+      device ? query(`SELECT * FROM block_requests WHERE device_id = $1 ORDER BY created_at DESC`, [device.id]) : { rows: [] }
     ]);
     await audit(req, 'admin.device_lookup', { entity: 'device', entityId: req.v.params.imei });
-    res.json({ imei: req.v.params.imei, device, owners: owners.rows, history: history.rows, theft_reports: reports.rows, alerts: alerts.rows });
+    res.json({
+      imei: req.v.params.imei,
+      device,
+      owners: owners.rows,
+      history: history.rows,
+      theft_reports: reports.rows,
+      alerts: alerts.rows,
+      sim_events: simEvents.rows,
+      connections: connections.rows,
+      block_requests: blockReqs.rows
+    });
   }
 );
 
@@ -476,18 +509,38 @@ adminRouter.get(
   validate({ params: z.object({ id: zUuid }) }),
   async (req, res) => {
     const { id } = req.v.params;
-    const c = await query(`SELECT id, full_name, phone, email, status, last_login_at, created_at FROM consumers WHERE id = $1`, [id]);
-    if (!c.rows[0]) throw notFound('Usager introuvable');
-    const devices = await query(
-      `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
-              r.receipt_number, r.receipt_key, r.box_photo_key,
-              d.imei1, d.imei2, d.status AS device_status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
-       FROM device_registrations r JOIN devices d ON d.id = r.device_id
-       LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
-       WHERE r.consumer_id = $1 ORDER BY r.acquired_at DESC`,
+    const c = await query(
+      `SELECT id, full_name, phone, email, emergency_number, emergency_name, status, last_login_at, created_at FROM consumers WHERE id = $1`,
       [id]
     );
-    res.json({ ...c.rows[0], devices: devices.rows });
+    if (!c.rows[0]) throw notFound('Usager introuvable');
+    const [devices, connections, simEvents] = await Promise.all([
+      query(
+        `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
+                r.receipt_number, r.receipt_key, r.box_photo_key,
+                d.imei1, d.imei2, d.status AS device_status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
+         FROM device_registrations r JOIN devices d ON d.id = r.device_id
+         LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+         WHERE r.consumer_id = $1 ORDER BY r.acquired_at DESC`,
+        [id]
+      ),
+      // Journal de connexion (actions usager + adresse IP)
+      query(
+        `SELECT action, ip, created_at FROM audit_logs
+         WHERE actor_type = 'consumer' AND actor_id = $1
+           AND action IN ('consumer.login', 'consumer.register', 'consumer.sim_change', 'consumer.device_registered', 'consumer.theft_reported')
+         ORDER BY created_at DESC LIMIT 50`,
+        [id]
+      ),
+      query(
+        `SELECT se.id, se.sim_id, se.phone_number, se.operator, se.ip, se.after_theft, se.created_at,
+                d.imei1 AS device_imei, d.status AS device_status
+         FROM sim_events se LEFT JOIN devices d ON d.id = se.device_id
+         WHERE se.consumer_id = $1 ORDER BY se.created_at DESC LIMIT 50`,
+        [id]
+      )
+    ]);
+    res.json({ ...c.rows[0], devices: devices.rows, connections: connections.rows, sim_events: simEvents.rows });
   }
 );
 
@@ -680,6 +733,28 @@ adminRouter.post(
   }
 );
 
+/* ------------------- Journal des cartes SIM (dont après vol) ------------------- */
+adminRouter.get(
+  '/sim-events',
+  requireAdmin(...INVESTIGATORS),
+  validate({ query: z.object({ after_theft: z.enum(['0', '1']).optional(), ...zPagination }) }),
+  async (req, res) => {
+    const { after_theft, page, limit } = req.v.query;
+    const where = after_theft === '1' ? 'WHERE se.after_theft = true' : '';
+    const { rows } = await query(
+      `SELECT se.id, se.sim_id, se.phone_number, se.operator, se.ip, se.after_theft, se.created_at,
+              c.full_name AS consumer_name, c.phone AS consumer_phone, c.email AS consumer_email,
+              d.imei1 AS device_imei, d.status AS device_status
+       FROM sim_events se
+       LEFT JOIN consumers c ON c.id = se.consumer_id
+       LEFT JOIN devices d ON d.id = se.device_id
+       ${where} ORDER BY se.created_at DESC ${paginate(page, limit)}`,
+      []
+    );
+    res.json({ items: rows, page, limit });
+  }
+);
+
 /* ---------------------------- Alertes de sécurité ---------------------------- */
 
 adminRouter.get(
@@ -835,10 +910,13 @@ adminRouter.get(
     const params = action ? [`${action.replace(/[%_\\]/g, '\\$&')}%`] : [];
     const where = action ? 'WHERE l.action LIKE $1' : '';
     const { rows } = await query(
-      `SELECT l.*, COALESCE(a.full_name, u.full_name) AS actor_name
+      `SELECT l.*, COALESCE(a.full_name, u.full_name, c.full_name) AS actor_name,
+              COALESCE(u.phone, c.phone) AS actor_phone,
+              COALESCE(a.email, c.email) AS actor_email
        FROM audit_logs l
        LEFT JOIN admins a ON l.actor_type = 'admin' AND a.id = l.actor_id
        LEFT JOIN users u ON l.actor_type = 'user' AND u.id = l.actor_id
+       LEFT JOIN consumers c ON l.actor_type = 'consumer' AND c.id = l.actor_id
        ${where} ORDER BY l.created_at DESC ${paginate(page, limit)}`,
       params
     );

@@ -33,7 +33,7 @@ export function AuditLog() {
             {data?.items.map((l) => (
               <tr key={l.id}>
                 <td className="small">{dateTime(l.created_at)}</td>
-                <td>{l.actor_name ?? l.actor_type}<div className="muted small">{l.actor_type}</div></td>
+                <td>{l.actor_name ?? l.actor_type}<div className="muted small">{l.actor_type}{l.actor_phone ? ` · ${l.actor_phone}` : ''}{l.actor_email ? ` · ${l.actor_email}` : ''}</div></td>
                 <td className="mono">{l.action}</td>
                 <td className="small">{l.entity} <span className="mono muted">{l.entity_id}</span></td>
                 <td className="mono small">{l.ip}</td>

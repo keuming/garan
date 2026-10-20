@@ -168,6 +168,76 @@ export function ImeiSearch() {
               </div>
             </div>
           ) : null}
+
+          {d ? (
+            <>
+              <div className="card">
+                <h2>Cartes SIM vues ({data.sim_events?.length ?? 0})</h2>
+                <p className="muted small">Les SIM apparues <strong>après</strong> une déclaration de vol sont surlignées.</p>
+                {!data.sim_events?.length ? <div className="empty">Aucune carte SIM signalée</div> : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Date</th><th>Numéro</th><th>Opérateur</th><th>Usager</th><th>IP</th><th>Contexte</th></tr></thead>
+                      <tbody>
+                        {data.sim_events.map((s) => (
+                          <tr key={s.id} style={s.after_theft ? { background: 'var(--danger-bg, #fde8e8)' } : undefined}>
+                            <td className="small">{dateTime(s.created_at)}</td>
+                            <td className="mono">{s.phone_number || '—'}<div className="muted small">{s.sim_id}</div></td>
+                            <td className="small">{s.operator || '—'}</td>
+                            <td className="small">{s.consumer_name || '—'}<div className="muted small">{s.consumer_phone || ''}</div></td>
+                            <td className="mono small">{s.ip || '—'}</td>
+                            <td>{s.after_theft ? <span className="badge danger">Après vol</span> : <span className="badge muted">Normal</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="card">
+                <h2>Adresses de connexion ({data.connections?.length ?? 0})</h2>
+                {!data.connections?.length ? <div className="empty">Aucune connexion enregistrée</div> : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Date</th><th>Usager</th><th>Action</th><th>Adresse IP</th></tr></thead>
+                      <tbody>
+                        {data.connections.map((l, i) => (
+                          <tr key={i}>
+                            <td className="small">{dateTime(l.created_at)}</td>
+                            <td className="small">{l.full_name || '—'}<div className="muted small">{l.phone || ''}{l.email ? ` · ${l.email}` : ''}</div></td>
+                            <td className="mono small">{l.action}</td>
+                            <td className="mono small">{l.ip || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {data.block_requests?.length ? (
+                <div className="card">
+                  <h2>Demandes de blocage opérateur ({data.block_requests.length})</h2>
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Date</th><th>Statut</th><th>Opérateur</th><th>PV</th></tr></thead>
+                      <tbody>
+                        {data.block_requests.map((b) => (
+                          <tr key={b.id}>
+                            <td className="small">{dateTime(b.created_at)}</td>
+                            <td className="small">{b.status}</td>
+                            <td className="small">{b.operator || '—'}{b.operator_reference ? <div className="muted small mono">{b.operator_reference}</div> : null}</td>
+                            <td className="small">{b.police_report_number || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </>
       ) : null}
     </>

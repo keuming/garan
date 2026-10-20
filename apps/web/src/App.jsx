@@ -7,6 +7,7 @@ import { Organizations } from './pages/Organizations.jsx';
 import { OrganizationDetail } from './pages/OrganizationDetail.jsx';
 import { ImeiSearch } from './pages/ImeiSearch.jsx';
 import { TheftReports } from './pages/TheftReports.jsx';
+import { BlockRequests } from './pages/BlockRequests.jsx';
 import { Alerts } from './pages/Alerts.jsx';
 import { Catalog } from './pages/Catalog.jsx';
 import { Admins } from './pages/Admins.jsx';
@@ -52,6 +53,7 @@ export function App() {
         <Route path="usagers" element={<Protected roles={INVESTIGATORS}><Consumers /></Protected>} />
         <Route path="usagers/:id" element={<Protected roles={INVESTIGATORS}><ConsumerDetail /></Protected>} />
         <Route path="declarations" element={<TheftReports />} />
+        <Route path="blocages" element={<Protected roles={INVESTIGATORS}><BlockRequests /></Protected>} />
         <Route path="alertes" element={<Protected roles={INVESTIGATORS}><Alerts /></Protected>} />
         <Route path="catalogue" element={<Catalog />} />
         <Route path="administrateurs" element={<Protected roles={['superadmin']}><Admins /></Protected>} />

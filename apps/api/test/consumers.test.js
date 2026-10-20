@@ -209,3 +209,18 @@ test('usager : numero de secours et detection de changement de SIM', async () =>
   assert.equal(changed.status, 200, JSON.stringify(changed.body));
   assert.equal(changed.body.changed, true);
 });
+
+test('usager : SIM apres vol est tracee (after_theft)', async () => {
+  const r = await api().post('/api/v1/consumer/auth/register').send({ full_name: 'Theft Sim', phone: '0105050505', pin: '5555' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const token = r.body.access_token;
+  const stolenImei = imei('35988800222334');
+  await pool.query(`INSERT INTO devices (imei1, status) VALUES ($1, 'stolen')`, [stolenImei]);
+  const res = await api().post('/api/v1/consumer/security/sim-change').set(auth(token)).send({ sim_id: 'SIM-THEFT-1', imei: stolenImei, new_number: '0711112222', operator: 'Orange' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.after_theft, true);
+  const ev = await pool.query(`SELECT * FROM sim_events WHERE sim_id = 'SIM-THEFT-1'`);
+  assert.equal(ev.rowCount, 1);
+  assert.equal(ev.rows[0].after_theft, true);
+  assert.equal(ev.rows[0].phone_number, '0711112222');
+});

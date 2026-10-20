@@ -56,6 +56,7 @@ export function ConsumerDetail() {
           <Link to="/usagers" className="small">← Usagers</Link>
           <h1 style={{ marginTop: 6 }}>{c.full_name} <span className={`badge ${c.status === 'active' ? 'ok' : 'muted'}`}>{c.status === 'active' ? 'Actif' : 'Désactivé'}</span></h1>
           <p>{c.phone}{c.email ? ` · ${c.email}` : ''} · inscrit le {dateTime(c.created_at)}</p>
+          {c.emergency_number ? <p className="small">Numéro de secours : <strong>{c.emergency_number}</strong>{c.emergency_name ? ` (${c.emergency_name})` : ''}</p> : null}
         </div>
         {can('superadmin', 'admin') ? (
           <button className="btn secondary" type="button" onClick={() => toggle.mutate(c.status === 'active' ? 'disabled' : 'active')} disabled={toggle.isPending}>
@@ -93,6 +94,49 @@ export function ConsumerDetail() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Cartes SIM vues ({c.sim_events?.length ?? 0})</h2>
+        {!c.sim_events?.length ? <div className="empty">Aucune carte SIM signalée</div> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Numéro</th><th>Opérateur</th><th>Appareil</th><th>IP</th><th>Contexte</th></tr></thead>
+              <tbody>
+                {c.sim_events.map((s) => (
+                  <tr key={s.id} style={s.after_theft ? { background: 'var(--danger-bg, #fde8e8)' } : undefined}>
+                    <td className="small">{dateTime(s.created_at)}</td>
+                    <td className="mono">{s.phone_number || '—'}<div className="muted small">{s.sim_id}</div></td>
+                    <td className="small">{s.operator || '—'}</td>
+                    <td className="small">{s.device_imei ? <Link className="mono" to={`/imei/${s.device_imei}`}>{s.device_imei}</Link> : '—'}</td>
+                    <td className="mono small">{s.ip || '—'}</td>
+                    <td>{s.after_theft ? <span className="badge danger">Après vol</span> : <span className="badge muted">Normal</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Journal de connexion ({c.connections?.length ?? 0})</h2>
+        {!c.connections?.length ? <div className="empty">Aucune connexion enregistrée</div> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Action</th><th>Adresse IP</th></tr></thead>
+              <tbody>
+                {c.connections.map((l, i) => (
+                  <tr key={i}>
+                    <td className="small">{dateTime(l.created_at)}</td>
+                    <td className="mono small">{l.action}</td>
+                    <td className="mono small">{l.ip || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
