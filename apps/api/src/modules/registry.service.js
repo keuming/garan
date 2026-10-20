@@ -4,7 +4,6 @@ import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { randomCode } from '../lib/security.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../logger.js';
-import { salePaymentView } from './sale-payment.service.js';
 
 /* =====================================================================
  * Cœur métier du registre : entrée en stock, rachat, vente.
@@ -15,7 +14,7 @@ import { salePaymentView } from './sale-payment.service.js';
 export const DEVICE_COLUMNS = `
   d.id, d.imei1, d.imei2, d.brand_id, d.model_id, d.model_label, d.color, d.storage_gb,
   d.status, d.owner_type, d.owner_shop_id, d.owner_person_id, d.created_at,
-  b.name AS brand_name, COALESCE(m.name, d.model_label) AS model_name,
+  COALESCE(b.name, d.brand_label) AS brand_name, COALESCE(m.name, d.model_label) AS model_name,
   os.organization_id AS owner_org_id`;
 
 export async function findDeviceByImei(client, imei, { lock = false } = {}) {
@@ -103,31 +102,37 @@ async function assertImei2Free(client, imei2, deviceId) {
 }
 
 async function createDevice(client, dev, owner) {
-  if (!dev.brand_id) {
+  const brandLabel = dev.brand_label && dev.brand_label.trim() ? dev.brand_label.trim() : null;
+  if (!dev.brand_id && !brandLabel) {
     throw badRequest('DEVICE_DETAILS_REQUIRED', 'Nouvel appareil : la marque est requise');
   }
   if (!dev.model_id && !dev.model_label) {
     throw badRequest('DEVICE_DETAILS_REQUIRED', 'Nouvel appareil : le modèle est requis');
   }
-  if (dev.model_id) {
-    const m = await client.query(`SELECT 1 FROM models WHERE id = $1 AND brand_id = $2`, [dev.model_id, dev.brand_id]);
-    if (!m.rowCount) throw badRequest('MODEL_BRAND_MISMATCH', 'Ce modèle n’appartient pas à la marque choisie');
-  } else {
-    const b = await client.query(`SELECT 1 FROM brands WHERE id = $1`, [dev.brand_id]);
-    if (!b.rowCount) throw badRequest('INVALID_BRAND', 'Marque inconnue');
+  if (dev.brand_id) {
+    if (dev.model_id) {
+      const m = await client.query(`SELECT 1 FROM models WHERE id = $1 AND brand_id = $2`, [dev.model_id, dev.brand_id]);
+      if (!m.rowCount) throw badRequest('MODEL_BRAND_MISMATCH', 'Ce modèle n’appartient pas à la marque choisie');
+    } else {
+      const b = await client.query(`SELECT 1 FROM brands WHERE id = $1`, [dev.brand_id]);
+      if (!b.rowCount) throw badRequest('INVALID_BRAND', 'Marque inconnue');
+    }
   }
+  // Marque en saisie libre : pas de modèle du catalogue, on garde le libellé.
+  const useFreeBrand = !dev.brand_id;
   await assertImei2Free(client, dev.imei2, null);
   const { rows } = await client.query(
-    `INSERT INTO devices (imei1, imei2, brand_id, model_id, model_label, color, storage_gb,
+    `INSERT INTO devices (imei1, imei2, brand_id, brand_label, model_id, model_label, color, storage_gb,
                           owner_type, owner_shop_id, owner_person_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING id`,
     [
       dev.imei1,
       dev.imei2 ?? null,
-      dev.brand_id,
-      dev.model_id ?? null,
-      dev.model_id ? null : dev.model_label,
+      useFreeBrand ? null : dev.brand_id,
+      useFreeBrand ? brandLabel : null,
+      useFreeBrand ? null : (dev.model_id ?? null),
+      !useFreeBrand && dev.model_id ? null : dev.model_label,
       dev.color ?? null,
       dev.storage_gb ?? null,
       owner.type,
@@ -383,8 +388,7 @@ export async function getTransaction(id, scope) {
   }
   const { rows } = await query(`${TX_SELECT} WHERE ${where}`, params);
   if (!rows[0]) throw notFound('Opération introuvable');
-  const tx = withCertificate(rows[0]);
-  return { ...tx, payment: await salePaymentView(tx) };
+  return withCertificate(rows[0]);
 }
 
 export async function listTransactions(scope, f) {
@@ -444,12 +448,12 @@ export async function salesSummary(scope, { from, to, type }) {
   const [totals, byBrand, byModel, byShop] = await Promise.all([
     query(`SELECT count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount ${base}`, params),
     query(
-      `SELECT COALESCE(b.name, 'Autre') AS brand, count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
+      `SELECT COALESCE(b.name, d.brand_label, 'Autre') AS brand, count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
        ${base} GROUP BY 1 ORDER BY amount DESC, count DESC`,
       params
     ),
     query(
-      `SELECT COALESCE(b.name, 'Autre') AS brand, COALESCE(m.name, d.model_label, 'Autre') AS model,
+      `SELECT COALESCE(b.name, d.brand_label, 'Autre') AS brand, COALESCE(m.name, d.model_label, 'Autre') AS model,
               count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
        ${base} GROUP BY 1, 2 ORDER BY amount DESC, count DESC`,
       params
@@ -470,66 +474,5 @@ export async function salesSummary(scope, { from, to, type }) {
     by_brand: byBrand.rows,
     by_model: byModel.rows,
     by_shop: byShop.rows
-  };
-}
-
-/** Soldes et ventes par état sur une période : digital (ORZAYAH), espèces, total. */
-export async function balanceSummary(scope, { from, to }) {
-  const params = [scope.orgId];
-  const cond = ['t.organization_id = $1', "t.type IN ('sale', 'purchase')"];
-  if (scope.shopId) {
-    params.push(scope.shopId);
-    cond.push(`t.shop_id = $${params.length}`);
-  }
-  if (from) {
-    params.push(from);
-    cond.push(`t.occurred_at >= $${params.length}`);
-  }
-  if (to) {
-    params.push(to);
-    cond.push(`t.occurred_at < $${params.length}`);
-  }
-  const { rows } = await query(
-    `SELECT t.type, t.condition, COALESCE(t.payment_method, 'cash') AS payment_method,
-            (t.payment_method IS DISTINCT FROM 'orzayah' OR EXISTS (
-               SELECT 1 FROM orzayah_payments p
-               WHERE p.transaction_id = t.id AND p.purpose = 'sale' AND p.applied)) AS paid,
-            count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
-     FROM transactions t WHERE ${cond.join(' AND ')} GROUP BY 1, 2, 3, 4`,
-    params
-  );
-  const byCondition = { new: { count: 0, amount: 0 }, like_new: { count: 0, amount: 0 }, used: { count: 0, amount: 0 } };
-  const sales = { count: 0, amount: 0 };
-  const purchases = { count: 0, amount: 0 };
-  const pending = { count: 0, amount: 0 };
-  let digital = 0;
-  let cash = 0;
-  for (const r of rows) {
-    const amount = Number(r.amount);
-    const sign = r.type === 'sale' ? 1 : -1;
-    if (!r.paid) {
-      // Vente ORZAYAH pas encore encaissée : comptée à part, hors des soldes.
-      pending.count += r.count;
-      pending.amount += amount;
-    } else if (r.payment_method === 'orzayah') digital += sign * amount;
-    else cash += sign * amount;
-    if (r.type === 'sale') {
-      sales.count += r.count;
-      sales.amount += amount;
-      const c = (byCondition[r.condition] ??= { count: 0, amount: 0 });
-      c.count += r.count;
-      c.amount += amount;
-    } else {
-      purchases.count += r.count;
-      purchases.amount += amount;
-    }
-  }
-  return {
-    from: from ?? null,
-    to: to ?? null,
-    sales: { ...sales, by_condition: byCondition },
-    purchases,
-    pending,
-    balances: { digital, cash, total: digital + cash }
   };
 }

@@ -4,10 +4,12 @@ import { api } from '../lib/api';
 import { Input, Select } from './ui';
 
 const OTHER = -1;
+const OTHER_BRAND = -2;
 
-/** Choix marque → modèle depuis le référentiel ; « Autre modèle » permet une saisie libre. */
+/** Choix marque → modèle depuis le référentiel. « Autre marque » et « Autre modèle » permettent une saisie libre. */
 export function BrandModelPicker({ value, onChange, errors = {} }) {
   const brands = useQuery({ queryKey: ['brands'], queryFn: () => api.get('/catalog/brands'), staleTime: 3_600_000 });
+  const freeBrand = value.brand_id == null && (value.brand_label !== undefined && value.brand_label !== null);
   const models = useQuery({
     queryKey: ['models', value.brand_id],
     queryFn: () => api.get('/catalog/models', { brand_id: value.brand_id }),
@@ -15,24 +17,46 @@ export function BrandModelPicker({ value, onChange, errors = {} }) {
     staleTime: 3_600_000
   });
 
-  const brandOptions = (brands.data?.items ?? []).map((b) => ({ value: b.id, label: b.name }));
+  const brandOptions = [
+    ...(brands.data?.items ?? []).map((b) => ({ value: b.id, label: b.name })),
+    { value: OTHER_BRAND, label: 'Autre marque (saisie libre)' }
+  ];
+  const brandValue = value.brand_id ?? (freeBrand ? OTHER_BRAND : undefined);
+
   const modelOptions = [
     ...(models.data?.items ?? []).map((m) => ({ value: m.id, label: m.name })),
     { value: OTHER, label: 'Autre modèle (saisie libre)' }
   ];
   const modelValue = value.model_id ?? (value.model_label !== undefined && value.model_label !== null ? OTHER : undefined);
 
+  function pickBrand(id) {
+    if (id === OTHER_BRAND) {
+      // Marque libre : pas de modèle du catalogue, on bascule tout en saisie libre.
+      onChange({ ...value, brand_id: undefined, brand_label: '', model_id: undefined, model_label: '' });
+    } else {
+      onChange({ ...value, brand_id: id, brand_label: undefined, model_id: undefined, model_label: undefined });
+    }
+  }
+
   return (
     <View style={{ gap: 12 }}>
       <Select
         label="Marque"
         searchable
-        value={value.brand_id}
+        value={brandValue}
         options={brandOptions}
         error={errors.brand_id}
         placeholder={brands.isLoading ? 'Chargement…' : 'Choisir la marque'}
-        onChange={(id) => onChange({ ...value, brand_id: id, model_id: undefined, model_label: undefined })}
+        onChange={pickBrand}
       />
+
+      {freeBrand ? (
+        <>
+          <Input label="Nom de la marque" value={value.brand_label ?? ''} onChangeText={(t) => onChange({ ...value, brand_label: t })} placeholder="Ex. Blackview, Cubot…" />
+          <Input label="Nom du modèle" value={value.model_label ?? ''} onChangeText={(t) => onChange({ ...value, model_label: t })} placeholder="Ex. BL9000" />
+        </>
+      ) : null}
+
       {value.brand_id ? (
         <Select
           label="Modèle"
@@ -44,7 +68,8 @@ export function BrandModelPicker({ value, onChange, errors = {} }) {
           onChange={(id) => onChange({ ...value, model_id: id === OTHER ? undefined : id, model_label: id === OTHER ? '' : undefined })}
         />
       ) : null}
-      {modelValue === OTHER ? (
+
+      {value.brand_id && modelValue === OTHER ? (
         <Input label="Nom du modèle" value={value.model_label ?? ''} onChangeText={(t) => onChange({ ...value, model_label: t })} placeholder="Ex. Galaxy A06" />
       ) : null}
     </View>

@@ -37,7 +37,7 @@ export function photoUrl(key) {
 const SELECT = `
   l.id, l.shop_id, l.brand_id, l.model_id, l.model_label, l.title, l.description,
   l.photo_key, l.price, l.quantity, l.status, l.created_at,
-  b.name AS brand, COALESCE(m.name, l.model_label) AS model, s.name AS shop_name`;
+  COALESCE(b.name, l.brand_label) AS brand, COALESCE(m.name, l.model_label) AS model, s.name AS shop_name`;
 
 const shape = (r) => ({
   id: r.id,
@@ -103,22 +103,31 @@ listingsRouter.post('/photo', requireActiveSubscription, (req, res, next) => { r
 
 /* ------------------------------ Création ------------------------------ */
 
-async function resolveModel(brandId, modelId, modelLabel) {
-  const brand = (await query(`SELECT name FROM brands WHERE id = $1`, [brandId])).rows[0];
-  if (!brand) throw badRequest('INVALID_BRAND', 'Marque inconnue');
+async function resolveModel(brandId, modelId, modelLabel, brandLabel) {
+  let brandName;
+  if (brandId) {
+    const brand = (await query(`SELECT name FROM brands WHERE id = $1`, [brandId])).rows[0];
+    if (!brand) throw badRequest('INVALID_BRAND', 'Marque inconnue');
+    brandName = brand.name;
+  } else if (brandLabel && brandLabel.trim()) {
+    brandName = brandLabel.trim();
+  } else {
+    throw badRequest('INVALID_BRAND', 'Marque requise');
+  }
   let modelName = modelLabel ?? null;
-  if (modelId) {
+  if (brandId && modelId) {
     const m = (await query(`SELECT name FROM models WHERE id = $1 AND brand_id = $2`, [modelId, brandId])).rows[0];
     if (!m) throw badRequest('MODEL_BRAND_MISMATCH', 'Ce modèle n’appartient pas à la marque choisie');
     modelName = m.name;
   }
   if (!modelName) throw badRequest('MODEL_REQUIRED', 'Modèle requis');
-  return { title: `${brand.name} ${modelName}`.trim() };
+  return { title: `${brandName} ${modelName}`.trim() };
 }
 
 const zCreate = z.object({
   shop_id: z.string().uuid().optional(),
-  brand_id: z.coerce.number().int().positive(),
+  brand_id: z.coerce.number().int().positive().optional(),
+  brand_label: z.string().trim().max(60).optional().nullable(),
   model_id: z.coerce.number().int().positive().optional().nullable(),
   model_label: z.string().trim().max(80).optional().nullable(),
   description: z.string().trim().max(1000).optional().nullable(),
@@ -132,11 +141,13 @@ listingsRouter.post('/', requireActiveSubscription, validate({ body: zCreate }),
   const b = req.v.body;
   if (b.photo_key && !b.photo_key.startsWith(`listings/${req.auth.orgId}/`)) throw badRequest('INVALID_PHOTO', 'Photo invalide');
   const shopId = await resolveShopId(req, b.shop_id);
-  const { title } = await resolveModel(b.brand_id, b.model_id, b.model_label);
+  const { title } = await resolveModel(b.brand_id, b.model_id, b.model_label, b.brand_label);
+  const freeBrand = !b.brand_id;
+  const brandLabel = b.brand_label && b.brand_label.trim() ? b.brand_label.trim() : null;
   const { rows } = await query(
-    `INSERT INTO listings (organization_id, shop_id, brand_id, model_id, model_label, title, description, photo_key, price, quantity, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-    [req.auth.orgId, shopId, b.brand_id, b.model_id ?? null, b.model_id ? null : b.model_label, title, b.description ?? null, b.photo_key ?? null, b.price, b.quantity, req.auth.sub]
+    `INSERT INTO listings (organization_id, shop_id, brand_id, brand_label, model_id, model_label, title, description, photo_key, price, quantity, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+    [req.auth.orgId, shopId, freeBrand ? null : b.brand_id, freeBrand ? brandLabel : null, freeBrand ? null : (b.model_id ?? null), !freeBrand && b.model_id ? null : b.model_label, title, b.description ?? null, b.photo_key ?? null, b.price, b.quantity, req.auth.sub]
   );
   await audit(req, 'listing.created', { entity: 'listing', entityId: rows[0].id });
   const { rows: full } = await query(

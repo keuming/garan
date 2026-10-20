@@ -27,7 +27,7 @@ const maskName = (name) =>
 
 publicRouter.get('/imei/:imei', publicLimiter, validate({ params: z.object({ imei: zImei }) }), async (req, res) => {
   const { rows } = await query(
-    `SELECT d.status, b.name AS brand, COALESCE(m.name, d.model_label) AS model
+    `SELECT d.status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
      FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
      WHERE d.imei1 = $1 OR d.imei2 = $1`,
     [req.v.params.imei]
@@ -56,7 +56,7 @@ publicRouter.get(
     const { rows } = await query(
       `SELECT t.receipt_number, t.type, t.condition, t.occurred_at, t.device_id, t.person_id,
               d.imei1, d.status AS device_status, d.owner_type, d.owner_person_id,
-              b.name AS brand, COALESCE(m.name, d.model_label) AS model,
+              COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model,
               s.name AS shop_name, s.city AS shop_city, s.district AS shop_district,
               p.full_name
        FROM transactions t
@@ -101,7 +101,7 @@ publicRouter.get(
       }
     }
     const { rows } = await query(
-      `SELECT d.imei1, d.imei2, d.status AS kind, b.name AS brand, COALESCE(m.name, d.model_label) AS model,
+      `SELECT d.imei1, d.imei2, d.status AS kind, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model,
               (SELECT max(tr.created_at) FROM theft_reports tr WHERE tr.device_id = d.id AND tr.status = 'confirmed') AS reported_at
        FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
        WHERE ${where}
@@ -148,7 +148,7 @@ publicRouter.get(
     if (!shop) throw notFound('Boutique introuvable');
     const { rows } = await query(
       `SELECT l.id, l.title, l.description, l.price, l.quantity, l.photo_key,
-              b.name AS brand, COALESCE(m.name, l.model_label) AS model
+              COALESCE(b.name, l.brand_label) AS brand, COALESCE(m.name, l.model_label) AS model
        FROM listings l LEFT JOIN brands b ON b.id = l.brand_id LEFT JOIN models m ON m.id = l.model_id
        WHERE l.shop_id = $1 AND l.status = 'active' AND l.quantity > 0
        ORDER BY l.created_at DESC`,

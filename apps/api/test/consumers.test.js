@@ -159,3 +159,26 @@ test('téléphone signalé volé : enregistrement usager refusé', async () => {
   assert.equal(reg.status, 409);
   assert.equal(reg.body.error.code, 'DEVICE_REPORTED');
 });
+
+test('usager : marque en saisie libre (hors catalogue)', async () => {
+  const r = await api().post('/api/v1/consumer/auth/register').send({ full_name: 'Zola Libre', phone: '0109090909', email: 'zola@mail.ci', pin: '1357' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const token = r.body.access_token;
+  const freeImei = imei('35988800123450');
+  const reg = await api().post('/api/v1/consumer/devices/register').set(auth(token)).send({
+    imei1: freeImei, brand_label: 'Blackview', model_label: 'BL9000'
+  });
+  assert.equal(reg.status, 201, JSON.stringify(reg.body));
+  const mine = await api().get('/api/v1/consumer/devices').set(auth(token));
+  const dev = mine.body.items.find((d) => d.imei1 === freeImei);
+  assert.ok(dev, 'appareil présent dans la liste');
+  assert.equal(dev.brand, 'Blackview');
+  assert.equal(dev.model, 'BL9000');
+
+  // marque ET modèle manquants → refus
+  const bad = await api().post('/api/v1/consumer/auth/register').send({ full_name: 'No Brand', phone: '0108080808', pin: '2222' });
+  const bt = bad.body.access_token;
+  const miss = await api().post('/api/v1/consumer/devices/register').set(auth(bt)).send({ imei1: imei('35988800123468') });
+  assert.equal(miss.status, 400);
+  assert.equal(miss.body.error.code, 'DEVICE_DETAILS_REQUIRED');
+});

@@ -333,7 +333,7 @@ adminRouter.get(
       query(
         `SELECT t.id, t.receipt_number, t.occurred_at, t.price, t.condition,
                 d.imei1, d.imei2, d.status AS device_status,
-                b.name AS brand, COALESCE(m.name, d.model_label) AS model,
+                COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model,
                 p.full_name AS buyer_name, p.phone1 AS buyer_phone1, p.phone2 AS buyer_phone2,
                 p.id_doc_type AS buyer_id_doc_type, p.id_doc_number AS buyer_id_doc_number,
                 (d.owner_type = 'person' AND d.owner_person_id = p.id) AS is_current_owner,
@@ -356,7 +356,7 @@ adminRouter.get(
   validate({ params: z.object({ imei: zImei }) }),
   async (req, res) => {
     const { rows } = await query(
-      `SELECT d.*, b.name AS brand_name, COALESCE(m.name, d.model_label) AS model_name,
+      `SELECT d.*, COALESCE(b.name, d.brand_label) AS brand_name, COALESCE(m.name, d.model_label) AS model_name,
               os.name AS owner_shop_name,
               CASE WHEN op.id IS NULL THEN NULL ELSE json_build_object(
                 'id', op.id, 'full_name', op.full_name, 'phone1', op.phone1, 'phone2', op.phone2, 'email', op.email,
@@ -480,7 +480,7 @@ adminRouter.get(
     const devices = await query(
       `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
               r.receipt_number, r.receipt_key, r.box_photo_key,
-              d.imei1, d.imei2, d.status AS device_status, b.name AS brand, COALESCE(m.name, d.model_label) AS model
+              d.imei1, d.imei2, d.status AS device_status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
        FROM device_registrations r JOIN devices d ON d.id = r.device_id
        LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
        WHERE r.consumer_id = $1 ORDER BY r.acquired_at DESC`,
@@ -517,7 +517,7 @@ adminRouter.get(
     const where = status ? 'WHERE r.status = $1' : '';
     const [items, total] = await Promise.all([
       query(
-        `SELECT r.*, b.name AS brand_name, COALESCE(m.name, d.model_label) AS model_name, a.full_name AS reviewed_by_name
+        `SELECT r.*, COALESCE(b.name, d.brand_label) AS brand_name, COALESCE(m.name, d.model_label) AS model_name, a.full_name AS reviewed_by_name
          FROM theft_reports r LEFT JOIN devices d ON d.id = r.device_id
          LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
          LEFT JOIN admins a ON a.id = r.reviewed_by

@@ -27,10 +27,8 @@ import {
   purchase,
   sale,
   salesSummary,
-  balanceSummary,
   stockIn
 } from './registry.service.js';
-import { pollSalePayment, startSalePayment } from './sale-payment.service.js';
 
 export const registryRouter = Router();
 registryRouter.use(requireUser);
@@ -42,6 +40,7 @@ const zDevice = z
     imei1: zImei,
     imei2: zImei.optional().nullable(),
     brand_id: z.coerce.number().int().positive().optional(),
+    brand_label: z.string().trim().max(60).optional().nullable(),
     model_id: z.coerce.number().int().positive().optional().nullable(),
     model_label: z.string().trim().max(80).optional().nullable(),
     color: z.string().trim().max(40).optional().nullable(),
@@ -177,12 +176,6 @@ registryRouter.post(
   }),
   async (req, res) => {
     const shopId = await resolveShopId(req, req.v.body.shop_id);
-    if (req.v.body.payment_method === 'orzayah') {
-      const org = (await query(`SELECT orzayah_api_key_enc FROM organizations WHERE id = $1`, [req.auth.orgId])).rows[0];
-      if (!org?.orzayah_api_key_enc) {
-        throw badRequest('ORZAYAH_NOT_LINKED', 'Reliez d’abord votre compte ORZAYAH (Mon compte) pour encaisser par ORZAYAH.');
-      }
-    }
     const id = await sale(req, shopId, req.v.body);
     res.status(201).json(await getTransaction(id, { orgId: req.auth.orgId }));
   }
@@ -254,26 +247,6 @@ registryRouter.get('/transactions/:id', validate({ params: z.object({ id: zUuid 
   res.json(await getTransaction(req.v.params.id, scope));
 });
 
-// Encaissement ORZAYAH d'une vente : émission du lien de paiement, puis suivi jusqu'à confirmation.
-registryRouter.post(
-  '/transactions/:id/payment',
-  requireActiveSubscription,
-  validate({ params: z.object({ id: zUuid }) }),
-  async (req, res) => {
-    const scope = await readScope(req);
-    const tx = await getTransaction(req.v.params.id, scope);
-    const payment = await startSalePayment(tx);
-    await audit(req, 'transaction.payment_link', { entity: 'transaction', entityId: tx.id });
-    res.status(201).json(payment);
-  }
-);
-
-registryRouter.get('/transactions/:id/payment', validate({ params: z.object({ id: zUuid }) }), async (req, res) => {
-  const scope = await readScope(req);
-  const tx = await getTransaction(req.v.params.id, scope);
-  res.json(await pollSalePayment(tx));
-});
-
 /* -------------------------------- États -------------------------------- */
 
 registryRouter.get(
@@ -288,14 +261,5 @@ registryRouter.get(
   async (req, res) => {
     const scope = await readScope(req, req.v.query.shop_id);
     res.json(await salesSummary(scope, req.v.query));
-  }
-);
-
-registryRouter.get(
-  '/stats/balance',
-  validate({ query: z.object({ shop_id: zUuid.optional(), ...zDateRange }) }),
-  async (req, res) => {
-    const scope = await readScope(req, req.v.query.shop_id);
-    res.json(await balanceSummary(scope, req.v.query));
   }
 );

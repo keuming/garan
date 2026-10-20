@@ -207,7 +207,7 @@ consumerRouter.get(
   async (req, res) => {
     const { imei } = req.v.params;
     const { rows } = await query(
-      `SELECT d.id, d.status, b.name AS brand, COALESCE(m.name, d.model_label) AS model, d.owner_type, d.owner_consumer_id
+      `SELECT d.id, d.status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model, d.owner_type, d.owner_consumer_id
        FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
        WHERE d.imei1 = $1 OR d.imei2 = $1`,
       [imei]
@@ -241,7 +241,7 @@ consumerRouter.get('/devices', requireConsumer, async (req, res) => {
     `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
             r.receipt_number, r.receipt_key, r.box_photo_key,
             d.id AS device_id, d.imei1, d.imei2, d.status AS device_status, d.color, d.storage_gb,
-            b.name AS brand, COALESCE(m.name, d.model_label) AS model
+            COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
      FROM device_registrations r
      JOIN devices d ON d.id = r.device_id
      LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
@@ -260,6 +260,7 @@ consumerRouter.post(
       imei1: zImei,
       imei2: zImei.optional().nullable(),
       brand_id: z.coerce.number().int().positive().optional(),
+      brand_label: z.string().trim().max(60).optional().nullable(),
       model_id: z.coerce.number().int().positive().optional().nullable(),
       model_label: z.string().trim().max(80).optional().nullable(),
       purchase_place: z.string().trim().max(160).optional().nullable(),
@@ -289,11 +290,13 @@ consumerRouter.post(
         throw conflict('HELD_BY_OTHER', 'Ce téléphone est enregistré par un autre usager ; il doit d’abord être délié.');
       }
       if (!device) {
-        if (!b.brand_id || (!b.model_id && !b.model_label)) throw badRequest('DEVICE_DETAILS_REQUIRED', 'Marque et modèle requis pour un téléphone inconnu');
+        const brandLabel = b.brand_label && b.brand_label.trim() ? b.brand_label.trim() : null;
+        if ((!b.brand_id && !brandLabel) || (!b.model_id && !b.model_label)) throw badRequest('DEVICE_DETAILS_REQUIRED', 'Marque et modèle requis pour un téléphone inconnu');
+        const freeBrand = !b.brand_id;
         const ins = await c.query(
-          `INSERT INTO devices (imei1, imei2, brand_id, model_id, model_label, owner_type, owner_consumer_id)
-           VALUES ($1, $2, $3, $4, $5, 'consumer', $6) RETURNING id`,
-          [b.imei1, b.imei2 ?? null, b.brand_id, b.model_id ?? null, b.model_id ? null : b.model_label, req.auth.sub]
+          `INSERT INTO devices (imei1, imei2, brand_id, brand_label, model_id, model_label, owner_type, owner_consumer_id)
+           VALUES ($1, $2, $3, $4, $5, $6, 'consumer', $7) RETURNING id`,
+          [b.imei1, b.imei2 ?? null, freeBrand ? null : b.brand_id, freeBrand ? brandLabel : null, freeBrand ? null : (b.model_id ?? null), !freeBrand && b.model_id ? null : b.model_label, req.auth.sub]
         );
         device = { id: ins.rows[0].id };
       } else {
@@ -375,7 +378,7 @@ consumerRouter.get('/subscription/plan', requireConsumer, (req, res) => res.json
 consumerRouter.post(
   '/subscription/orzayah',
   requireConsumer,
-  validate({ body: z.object({ operator: z.enum(OPERATORS).optional(), account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide').optional(), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
+  validate({ body: z.object({ operator: z.enum(OPERATORS), account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide'), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
   async (req, res) => {
     const r = await initiateSubscription({ subjectType: 'consumer', subjectId: req.auth.sub, months: req.v.body.months, operator: req.v.body.operator, accountNumber: req.v.body.account_number });
     await audit(req, 'consumer.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
@@ -399,7 +402,7 @@ consumerRouter.get(
   validate({ params: z.object({ imei: zImei }) }),
   async (req, res) => {
     const { rows } = await query(
-      `SELECT d.status, b.name AS brand, COALESCE(m.name, d.model_label) AS model
+      `SELECT d.status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
        FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
        WHERE d.imei1 = $1 OR d.imei2 = $1`,
       [req.v.params.imei]
