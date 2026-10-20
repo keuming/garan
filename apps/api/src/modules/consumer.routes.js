@@ -18,6 +18,41 @@ import {
 } from '../lib/security.js';
 import { storage } from '../lib/storage.js';
 import { audit } from '../lib/audit.js';
+import { sendEmail, emailLayout } from '../lib/mailer.js';
+
+/** E-mail de bienvenue (si une adresse est fournie à l'inscription). Ne bloque jamais. */
+async function sendWelcome({ email, name }) {
+  if (!email) return;
+  const hello = name ? `Bonjour ${name},` : 'Bonjour,';
+  await sendEmail({
+    to: email,
+    subject: 'Bienvenue sur gaRAN',
+    html: emailLayout({ title: 'Bienvenue sur gaRAN', bodyHtml: `<p>${hello}</p><p>Votre compte gaRAN est créé. Protégez vos téléphones : liez leur IMEI et signalez un vol en un clic sur tout le réseau.</p>` }),
+    text: `${hello}\nVotre compte gaRAN est créé. Liez l'IMEI de vos téléphones pour les protéger.`
+  }).catch(() => {});
+}
+
+/** Notifie un changement d'adresse e-mail : à l'ANCIENNE (sécurité) et à la NOUVELLE (confirmation). Ne bloque jamais. */
+async function notifyEmailChange({ oldEmail, newEmail, name }) {
+  const hello = name ? `Bonjour ${name},` : 'Bonjour,';
+  if (oldEmail) {
+    await sendEmail({
+      to: oldEmail,
+      subject: 'Votre adresse e-mail gaRAN a été modifiée',
+      html: emailLayout({
+        title: 'Adresse e-mail modifiée',
+        bodyHtml: `<p>${hello}</p><p>L'adresse e-mail de votre compte gaRAN vient d'être remplacée par <strong>${newEmail}</strong>.</p><p>Si vous êtes à l'origine de ce changement, aucune action n'est nécessaire.</p><p><strong>Si vous n'êtes pas à l'origine de ce changement</strong>, votre compte est peut-être compromis : modifiez votre code PIN immédiatement et contactez-nous.</p>`
+      }),
+      text: `${hello}\nL'adresse e-mail de votre compte gaRAN a été remplacée par ${newEmail}. Si vous n'êtes pas à l'origine de ce changement, modifiez votre code PIN et contactez-nous.`
+    }).catch(() => {});
+  }
+  await sendEmail({
+    to: newEmail,
+    subject: 'Confirmation de votre nouvelle adresse e-mail gaRAN',
+    html: emailLayout({ title: 'Nouvelle adresse e-mail confirmée', bodyHtml: `<p>${hello}</p><p>Cette adresse est désormais associée à votre compte gaRAN.</p>` }),
+    text: `${hello}\nCette adresse est désormais associée à votre compte gaRAN.`
+  }).catch(() => {});
+}
 import { OPERATORS } from '../lib/orzayah.js';
 import { initiateSubscription, pollSubscription, PLAN_FCFA } from './subscription.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
@@ -73,6 +108,7 @@ consumerRouter.post(
     );
     req.auth = { typ: 'consumer', sub: rows[0].id };
     await audit(req, 'consumer.register', { entity: 'consumer', entityId: rows[0].id });
+    await sendWelcome({ email: b.email, name: b.full_name });
     res.status(201).json({
       access_token: accessToken(rows[0]),
       refresh_token: await issueRefreshToken('consumer', rows[0].id, meta(req)),
@@ -151,9 +187,15 @@ consumerRouter.patch(
   requireConsumer,
   validate({ body: z.object({ full_name: zText(120).optional(), email: zOptionalEmail }) }),
   async (req, res) => {
+    const current = (await query(`SELECT full_name, email FROM consumers WHERE id = $1`, [req.auth.sub])).rows[0];
     const fields = Object.entries({ full_name: req.v.body.full_name, email: req.v.body.email }).filter(([, v]) => v !== undefined);
     if (!fields.length) throw badRequest('NOTHING_TO_UPDATE', 'Aucune modification');
     await query(`UPDATE consumers SET ${fields.map(([k], i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`, [req.auth.sub, ...fields.map(([, v]) => v)]);
+    // Changement d'adresse e-mail → on prévient l'ancienne (anti-détournement) et on confirme la nouvelle.
+    const newEmail = req.v.body.email;
+    if (newEmail && (current?.email ?? null) !== newEmail) {
+      await notifyEmailChange({ oldEmail: current?.email ?? null, newEmail, name: req.v.body.full_name ?? current?.full_name });
+    }
     res.json({ consumer: await loadConsumer(req.auth.sub) });
   }
 );

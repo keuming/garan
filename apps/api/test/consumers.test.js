@@ -181,3 +181,12 @@ test('usager : marque en saisie libre (hors catalogue)', async () => {
   assert.equal(miss.status, 400);
   assert.equal(miss.body.error.code, 'DEVICE_DETAILS_REQUIRED');
 });
+
+test('usager : changement e-mail met a jour le compte', async () => {
+  const r = await api().post('/api/v1/consumer/auth/register').send({ full_name: 'Mail Test', phone: '0107070707', email: 'old@mail.ci', pin: '3333' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const token = r.body.access_token;
+  const upd = await api().patch('/api/v1/consumer/me').set(auth(token)).send({ email: 'new@mail.ci' });
+  assert.equal(upd.status, 200, JSON.stringify(upd.body));
+  assert.equal(upd.body.consumer.email, 'new@mail.ci');
+});

@@ -23,6 +23,11 @@ const schema = z
     // Intégration ORZAYAH (paiement digital). La clé reste côté serveur uniquement.
     ORZAYAH_API_URL: z.string().url().default('https://api.orzayah.com/api/public/v1'),
     ORZAYAH_API_KEY: z.string().default(''),
+
+    // Envoi d'e-mails transactionnels via Resend. Vide = envoi désactivé proprement (aucune erreur).
+    RESEND_API_KEY: z.string().default(''),
+    MAIL_FROM: z.string().default(''),
+    MAIL_REPLY_TO: z.string().default(''),
     DEFAULT_COUNTRY_CODE: z.string().regex(/^\d{1,3}$/).default('225'),
     TRIAL_DAYS: z.coerce.number().int().min(0).default(14),
 
