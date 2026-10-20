@@ -372,6 +372,8 @@ test('profil marchand : identifiant ORZAYAH', async () => {
   const prof = await api().patch('/api/v1/org/profile').set(bearer(ctx.a.access_token)).send({ orzayah_number: '0700000000' });
   assert.equal(prof.status, 200);
   assert.equal(prof.body.orzayah_number, '0700000000');
+  // Encaissement ORZAYAH : la vente par ORZAYAH exige une clé marchand chiffrée en base.
+  await pool.query(`UPDATE organizations SET orzayah_api_key_enc = 'enc-test', orzayah_api_key_last4 = '1234' WHERE id = $1`, [ctx.a.user.organization.id]);
 });
 
 test('disponibilité : création, liste et vitrine publique', async () => {

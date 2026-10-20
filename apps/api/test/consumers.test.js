@@ -175,7 +175,6 @@ test('usager : marque en saisie libre (hors catalogue)', async () => {
   assert.equal(dev.brand, 'Blackview');
   assert.equal(dev.model, 'BL9000');
 
-  // marque ET modèle manquants → refus
   const bad = await api().post('/api/v1/consumer/auth/register').send({ full_name: 'No Brand', phone: '0108080808', pin: '2222' });
   const bt = bad.body.access_token;
   const miss = await api().post('/api/v1/consumer/devices/register').set(auth(bt)).send({ imei1: imei('35988800123468') });
