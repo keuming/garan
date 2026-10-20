@@ -1,0 +1,208 @@
+===== registry.service.js 405-470
+        ? `(d.imei1 LIKE $${i} || '%' OR d.imei2 LIKE $${i} || '%')`
+        : `(t.receipt_number ILIKE $${i} OR p.full_name ILIKE '%' || $${i} || '%')`
+    );
+  }
+  const where = cond.join(' AND ');
+  const offset = (f.page - 1) * f.limit;
+  const [items, total] = await Promise.all([
+    query(`${TX_SELECT} WHERE ${where} ORDER BY t.occurred_at DESC LIMIT ${f.limit} OFFSET ${offset}`, params),
+    query(
+      `SELECT count(*)::int AS n FROM transactions t
+       JOIN devices d ON d.id = t.device_id LEFT JOIN persons p ON p.id = t.person_id
+       WHERE ${where}`,
+      params
+    )
+  ]);
+  return { items: items.rows.map(withCertificate), total: total.rows[0].n, page: f.page, limit: f.limit };
+}
+
+/** États par période : totaux, puis détail par marque et par modèle. */
+export async function salesSummary(scope, { from, to, type }) {
+  const params = [scope.orgId, type];
+  const cond = ['t.organization_id = $1', 't.type = $2'];
+  if (scope.shopId) {
+    params.push(scope.shopId);
+    cond.push(`t.shop_id = $${params.length}`);
+  }
+  if (from) {
+    params.push(from);
+    cond.push(`t.occurred_at >= $${params.length}`);
+  }
+  if (to) {
+    params.push(to);
+    cond.push(`t.occurred_at < $${params.length}`);
+  }
+  const base = `FROM transactions t JOIN devices d ON d.id = t.device_id
+                LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+                WHERE ${cond.join(' AND ')}`;
+  const [totals, byBrand, byModel, byShop] = await Promise.all([
+    query(`SELECT count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount ${base}`, params),
+    query(
+      `SELECT COALESCE(b.name, 'Autre') AS brand, count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
+       ${base} GROUP BY 1 ORDER BY amount DESC, count DESC`,
+      params
+    ),
+    query(
+      `SELECT COALESCE(b.name, 'Autre') AS brand, COALESCE(m.name, d.model_label, 'Autre') AS model,
+              count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
+       ${base} GROUP BY 1, 2 ORDER BY amount DESC, count DESC`,
+      params
+    ),
+    query(
+      `SELECT s.id AS shop_id, s.name AS shop, count(*)::int AS count, COALESCE(sum(t.price), 0) AS amount
+       ${base.replace('WHERE', 'JOIN shops s ON s.id = t.shop_id WHERE')}
+       GROUP BY 1, 2 ORDER BY amount DESC`,
+      params
+    )
+  ]);
+  return {
+    type,
+    from: from ?? null,
+    to: to ?? null,
+    total_count: totals.rows[0].count,
+    total_amount: totals.rows[0].amount,
+    by_brand: byBrand.rows,
+    by_model: byModel.rows,
+    by_shop: byShop.rows
+  };
+}
+===== registry.routes.js 235-270
+      ...zPagination
+    })
+  }),
+  async (req, res) => {
+    const scope = await readScope(req, req.v.query.shop_id);
+    res.json(await listTransactions(scope, req.v.query));
+  }
+);
+
+registryRouter.get('/transactions/:id', validate({ params: z.object({ id: zUuid }) }), async (req, res) => {
+  const scope = await readScope(req);
+  res.json(await getTransaction(req.v.params.id, scope));
+});
+
+/* -------------------------------- États -------------------------------- */
+
+registryRouter.get(
+  '/stats/summary',
+  validate({
+    query: z.object({
+      type: z.enum(['stock_in', 'purchase', 'sale']).default('sale'),
+      shop_id: zUuid.optional(),
+      ...zDateRange
+    })
+  }),
+  async (req, res) => {
+    const scope = await readScope(req, req.v.query.shop_id);
+    res.json(await salesSummary(scope, req.v.query));
+  }
+);
+===== format.js
+const nf = new Intl.NumberFormat('fr-FR');
+
+export const fcfa = (n) => `${nf.format(Number(n ?? 0)).replace(/ | /g, ' ')} FCFA`;
+export const num = (n) => nf.format(Number(n ?? 0)).replace(/ | /g, ' ');
+
+const pad = (n) => String(n).padStart(2, '0');
+export const date = (d) => {
+  if (!d) return '—';
+  const x = new Date(d);
+  return `${pad(x.getDate())}/${pad(x.getMonth() + 1)}/${x.getFullYear()}`;
+};
+export const dateTime = (d) => {
+  if (!d) return '—';
+  const x = new Date(d);
+  return `${date(x)} ${pad(x.getHours())}:${pad(x.getMinutes())}`;
+};
+
+export const LABELS = {
+  txType: { stock_in: 'Entrée en stock', purchase: 'Rachat', sale: 'Vente' },
+  condition: { new: 'Neuf', like_new: 'Quasi neuf', used: 'Seconde main' },
+  docType: {
+    CNI: 'CNI',
+    PASSPORT: 'Passeport',
+    PERMIS: 'Permis de conduire',
+    ATTESTATION: 'Attestation d’identité',
+    CARTE_CONSULAIRE: 'Carte consulaire',
+    CARTE_SEJOUR: 'Carte de séjour'
+  },
+  orgStatus: { trial: 'Période d’essai', active: 'Actif', suspended: 'Suspendu', expired: 'Expiré' }
+};
+
+export const toOptions = (map) => Object.entries(map).map(([value, label]) => ({ value, label }));
+
+/** Bornes de période pour les états. */
+export function periodRange(key) {
+  const now = new Date();
+  const start = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  switch (key) {
+    case 'today':
+      return { from: start(now), to: null };
+    case '7d':
+      return { from: new Date(start(now).getTime() - 6 * 86_400_000), to: null };
+    case 'month':
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null };
+    case 'last_month':
+      return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 1) };
+    case 'year':
+      return { from: new Date(now.getFullYear(), 0, 1), to: null };
+    default:
+      return { from: null, to: null };
+  }
+}
+export const PERIODS = [
+  { value: 'today', label: 'Aujourd’hui' },
+  { value: '7d', label: '7 jours' },
+  { value: 'month', label: 'Ce mois' },
+  { value: 'last_month', label: 'Mois dernier' },
+  { value: 'year', label: 'Cette année' }
+];
+===== theme.js
+/**
+ * Palette gaRAN — harmonie « émeraude » : un vert de marque riche (pas criard),
+ * une encre vert-forêt chaude (au lieu d'un bleu-marine froid) et un fond blanc-menthe.
+ * L'émeraude est la seule couleur vive ; tout le reste reste calme. Le rouge sang
+ * est réservé aux alertes VOL.
+ */
+export const colors = {
+  // Famille émeraude (marque + actions)
+  green: '#00C271',   // émeraude de marque (logo « RAN », points forts, surfaces « protégé »)
+  emerald: '#00C271',
+  emeraldDeep: '#009E5C',
+  emeraldSoft: '#E3F7EC',
+  blue: '#009E5C',    // action principale (boutons/tuiles, texte blanc lisible)
+  blueDark: '#06824D',
+  blueSoft: '#E3F7EC',
+  cyan: '#0E9C8C',    // teal secondaire (entrée en stock)
+  forest: '#0C2F23',  // vert-forêt profond (en-têtes, tuiles sombres)
+  navy: '#0C2F23',    // alias conservé (harmonisé en vert-forêt)
+
+  // Encre & surfaces
+  ink: '#0C2A20',
+  ink2: '#51665C',
+  ink3: '#8AA096',
+  line: '#E2EDE7',
+  bg: '#F3F8F5',      // blanc-menthe chaud
+  card: '#FFFFFF',
+
+  // États
+  ok: '#0F8A5F',
+  okBg: '#E3F6EE',
+  warn: '#A35C00',
+  warnBg: '#FFF4E2',
+  danger: '#C4282D',
+  dangerBg: '#FDE8E8',
+  blood: '#8B0000',   // rouge sang — alertes VOL
+  bloodBg: '#FBE2E2'
+};
+
+export const radius = { sm: 10, md: 14, lg: 20, xl: 28 };
+export const space = (n) => n * 4;
+
+/** Ombres translucides émeraude — signature visuelle (profondeur douce, pas de gris plat). */
+export const shadow = {
+  card: { shadowColor: '#0B7a52', shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 3 },
+  tile: { shadowColor: '#059c66', shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 5 },
+  hero: { shadowColor: '#00C271', shadowOpacity: 0.32, shadowRadius: 26, shadowOffset: { width: 0, height: 14 }, elevation: 9 }
+};
