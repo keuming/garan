@@ -19,6 +19,7 @@ import {
 import { storage } from '../lib/storage.js';
 import { audit } from '../lib/audit.js';
 import { sendEmail, emailLayout } from '../lib/mailer.js';
+import { sendSms } from '../lib/sms.js';
 
 /** E-mail de bienvenue (si une adresse est fournie à l'inscription). Ne bloque jamais. */
 async function sendWelcome({ email, name }) {
@@ -72,7 +73,7 @@ const accessToken = (c) => signAccessToken({ sub: c.id, typ: 'consumer' });
 
 async function loadConsumer(id) {
   const { rows } = await query(
-    `SELECT id, full_name, phone, email, status, subscription_expires_at, created_at FROM consumers WHERE id = $1`,
+    `SELECT id, full_name, phone, email, emergency_number, emergency_name, status, subscription_expires_at, created_at FROM consumers WHERE id = $1`,
     [id]
   );
   if (!rows[0]) throw notFound('Compte introuvable');
@@ -185,10 +186,22 @@ consumerRouter.get('/me', requireConsumer, async (req, res) => res.json({ consum
 consumerRouter.patch(
   '/me',
   requireConsumer,
-  validate({ body: z.object({ full_name: zText(120).optional(), email: zOptionalEmail }) }),
+  validate({
+    body: z.object({
+      full_name: zText(120).optional(),
+      email: zOptionalEmail,
+      emergency_number: z.string().trim().max(20).optional().nullable(),
+      emergency_name: z.string().trim().max(120).optional().nullable()
+    })
+  }),
   async (req, res) => {
     const current = (await query(`SELECT full_name, email FROM consumers WHERE id = $1`, [req.auth.sub])).rows[0];
-    const fields = Object.entries({ full_name: req.v.body.full_name, email: req.v.body.email }).filter(([, v]) => v !== undefined);
+    const fields = Object.entries({
+      full_name: req.v.body.full_name,
+      email: req.v.body.email,
+      emergency_number: req.v.body.emergency_number,
+      emergency_name: req.v.body.emergency_name
+    }).filter(([, v]) => v !== undefined);
     if (!fields.length) throw badRequest('NOTHING_TO_UPDATE', 'Aucune modification');
     await query(`UPDATE consumers SET ${fields.map(([k], i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`, [req.auth.sub, ...fields.map(([, v]) => v)]);
     // Changement d'adresse e-mail → on prévient l'ancienne (anti-détournement) et on confirme la nouvelle.
@@ -197,6 +210,58 @@ consumerRouter.patch(
       await notifyEmailChange({ oldEmail: current?.email ?? null, newEmail, name: req.v.body.full_name ?? current?.full_name });
     }
     res.json({ consumer: await loadConsumer(req.auth.sub) });
+  }
+);
+
+/** Alerte un changement de carte SIM : e-mail au propriétaire + SMS au numéro de secours. Ne bloque jamais. */
+async function alertSimChange({ consumer, newNumber, operator }) {
+  const name = consumer.full_name || 'un usager';
+  const detail = [newNumber ? `nouveau numéro ${newNumber}` : null, operator ? `opérateur ${operator}` : null].filter(Boolean).join(', ');
+  if (consumer.email) {
+    await sendEmail({
+      to: consumer.email,
+      subject: 'gaRAN — changement de carte SIM détecté',
+      html: emailLayout({
+        title: 'Changement de carte SIM détecté',
+        bodyHtml: `<p>Bonjour ${consumer.full_name || ''},</p><p>Une <strong>nouvelle carte SIM</strong> vient d'être détectée dans un téléphone enregistré sur votre compte gaRAN${detail ? ` (${detail})` : ''}.</p><p>Si c'est vous (changement d'opérateur ou nouvelle SIM), ignorez ce message.</p><p><strong>Si ce n'est pas vous</strong>, votre téléphone a peut-être été volé : ouvrez l'app et signalez-le immédiatement (Déclarer un vol), puis prévenez votre contact de secours.</p>`
+      }),
+      text: `Changement de carte SIM détecté sur un téléphone de votre compte gaRAN${detail ? ` (${detail})` : ''}. Si ce n'est pas vous, signalez un vol immédiatement.`
+    }).catch(() => {});
+  }
+  if (consumer.emergency_number) {
+    await sendSms({
+      to: consumer.emergency_number,
+      message: `[gaRAN] Alerte: changement de carte SIM sur le telephone de ${name}${newNumber ? `. Nouveau numero: ${newNumber}` : ''}. En cas de vol suspecte, agissez vite.`
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Signalement d'un changement de carte SIM par l'app.
+ * L'app envoie l'identifiant de la SIM courante ; au premier appel on l'enregistre,
+ * et si l'identifiant change ensuite, on déclenche les alertes.
+ */
+consumerRouter.post(
+  '/security/sim-change',
+  requireConsumer,
+  validate({
+    body: z.object({
+      sim_id: z.string().trim().min(3).max(64),
+      new_number: z.string().trim().max(20).optional().nullable(),
+      operator: z.string().trim().max(40).optional().nullable()
+    })
+  }),
+  async (req, res) => {
+    const c = (await query(`SELECT id, full_name, email, emergency_number, last_sim_id FROM consumers WHERE id = $1`, [req.auth.sub])).rows[0];
+    if (!c) throw notFound('Compte introuvable');
+    const prev = c.last_sim_id;
+    const changed = Boolean(prev) && prev !== req.v.body.sim_id;
+    await query(`UPDATE consumers SET last_sim_id = $2 WHERE id = $1`, [req.auth.sub, req.v.body.sim_id]);
+    if (changed) {
+      await audit(req, 'consumer.sim_change', { entity: 'consumer', entityId: req.auth.sub, meta: { operator: req.v.body.operator ?? null } });
+      await alertSimChange({ consumer: c, newNumber: req.v.body.new_number, operator: req.v.body.operator });
+    }
+    res.json({ changed, first_seen: !prev });
   }
 );
 

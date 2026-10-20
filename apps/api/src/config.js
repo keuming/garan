@@ -28,6 +28,11 @@ const schema = z
     RESEND_API_KEY: z.string().default(''),
     MAIL_FROM: z.string().default(''),
     MAIL_REPLY_TO: z.string().default(''),
+
+    // Passerelle SMS (générique, branchable). Vide = envoi SMS désactivé proprement.
+    SMS_API_URL: z.string().default(''),
+    SMS_API_KEY: z.string().default(''),
+    SMS_SENDER: z.string().default('gaRAN'),
     DEFAULT_COUNTRY_CODE: z.string().regex(/^\d{1,3}$/).default('225'),
     TRIAL_DAYS: z.coerce.number().int().min(0).default(14),
 

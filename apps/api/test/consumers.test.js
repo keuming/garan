@@ -190,3 +190,22 @@ test('usager : changement e-mail met a jour le compte', async () => {
   assert.equal(upd.status, 200, JSON.stringify(upd.body));
   assert.equal(upd.body.consumer.email, 'new@mail.ci');
 });
+
+test('usager : numero de secours et detection de changement de SIM', async () => {
+  const r = await api().post('/api/v1/consumer/auth/register').send({ full_name: 'Sim Test', phone: '0106060606', pin: '4444' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const token = r.body.access_token;
+  const upd = await api().patch('/api/v1/consumer/me').set(auth(token)).send({ emergency_number: '0788889999', emergency_name: 'Maman' });
+  assert.equal(upd.status, 200, JSON.stringify(upd.body));
+  assert.equal(upd.body.consumer.emergency_number, '0788889999');
+  assert.equal(upd.body.consumer.emergency_name, 'Maman');
+  const first = await api().post('/api/v1/consumer/security/sim-change').set(auth(token)).send({ sim_id: 'SIM-AAA' });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.changed, false);
+  assert.equal(first.body.first_seen, true);
+  const same = await api().post('/api/v1/consumer/security/sim-change').set(auth(token)).send({ sim_id: 'SIM-AAA' });
+  assert.equal(same.body.changed, false);
+  const changed = await api().post('/api/v1/consumer/security/sim-change').set(auth(token)).send({ sim_id: 'SIM-BBB', new_number: '0700001111', operator: 'MTN' });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  assert.equal(changed.body.changed, true);
+});
