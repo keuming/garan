@@ -9,9 +9,10 @@
     "start:supervisor": "APP_VARIANT=supervisor expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "build:shop": "eas build --profile shop",
-    "build:supervisor": "eas build --profile supervisor",
-    "doctor": "npx expo-doctor"
+    "doctor": "npx expo-doctor",
+    "build:apk": "eas build -p android --profile preview",
+    "update:preview": "eas update --channel preview",
+    "export:web": "expo export --platform web"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.14",
