@@ -5,6 +5,7 @@ import { ImeiField } from '../../src/components/ImeiField';
 import { Banner, Button, Card, ErrorBanner, Input, Muted, Screen, Segmented, Title } from '../../src/components/ui';
 import { api } from '../../src/lib/api';
 import { isValidImei } from '../../src/lib/imei';
+import { FindMyPhone } from '../../src/components/FindMyPhone';
 
 export default function ReportTheft() {
   const qc = useQueryClient();
@@ -32,6 +33,7 @@ export default function ReportTheft() {
           </Banner>
           <Button title="Voir les téléphones volés" onPress={() => router.replace('/stolen')} />
           <Button title="Nouvelle déclaration" variant="secondary" onPress={() => report.reset()} />
+          <FindMyPhone mode="theft" />
         </>
       ) : (
         <>
@@ -44,6 +46,7 @@ export default function ReportTheft() {
           </Card>
           <ErrorBanner error={report.error} />
           <Button title="Déclarer" variant="danger" onPress={() => report.mutate()} loading={report.isPending} disabled={!isValidImei(imei)} />
+          <FindMyPhone mode="theft" />
         </>
       )}
     </Screen>

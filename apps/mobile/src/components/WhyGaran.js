@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Button, Card, Muted, Screen, Segmented } from './ui';
 import { colors, radius } from '../lib/theme';
+import { FindMyPhone } from './FindMyPhone';
 
 /* ----------------------------- Contenus ----------------------------- */
 
@@ -19,6 +20,7 @@ const CONSUMER = {
     ['📜', 'Certificat de propriété', 'Une preuve numérique que le téléphone est à vous, même sans le carton — utile face à la police ou pour une revente honnête.'],
     ['🔍', 'Vérifiez avant d’acheter', 'Avant un achat d’occasion, contrôlez l’IMEI : n’achetez jamais un téléphone déjà signalé volé.'],
     ['⛔', 'Registre réseau des volés', 'Consultez la liste des téléphones volés et aidez à les retrouver.'],
+    ['📍', 'Localisez votre téléphone', 'gaRAN ne peut pas le localiser à votre place, mais vous guide vers Localiser mon appareil (Android) et Localiser (iPhone) pour le retrouver, le verrouiller ou l’effacer.'],
     ['🔧', 'Réparations à prix réduit', 'Tarifs préférentiels chez les réparateurs partenaires gaRAN.']
   ],
   priceTitle: '100 FCFA / mois',
@@ -103,6 +105,7 @@ export function WhyGaran({ role = 'consumer', lockRole = false, onSubscribe }) {
       <Text style={st.section}>Ce que gaRAN vous apporte</Text>
       {c.benefits.map((b) => <Block key={b[1]} icon={b[0]} title={b[1]} text={b[2]} tone={colors.green} />)}
 
+      {selected === 'consumer' ? <FindMyPhone mode="prevention" /> : null}
       <View style={st.price}>
         <Text style={st.priceLabel}>Votre abonnement</Text>
         <Text style={st.priceValue}>{c.priceTitle}</Text>
