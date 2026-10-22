@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { query, withTransaction } from '../db.js';
 import { notFound } from '../lib/errors.js';
-import { createDeposit, getOperation, createPaymentLink, getPaymentLink, opReference, opStatus, opNextAction } from '../lib/orzayah.js';
+import { createDeposit, getOperation, opReference, opStatus, opNextAction } from '../lib/orzayah.js';
 import { logger } from '../logger.js';
 
 /* Tarifs d'abonnement, en FCFA par mois. */
@@ -16,35 +16,6 @@ export async function initiateSubscription({ subjectType, subjectId, months = 1,
   const amountCentimes = amountFcfa * 100;
   const purpose = subjectType === 'organization' ? 'subscription_merchant' : 'subscription_consumer';
   const idempotencyKey = `sub-${subjectType.slice(0, 4)}-${crypto.randomUUID()}`;
-
-  // Mode lien (par defaut) : pas de numero a saisir, le payeur regle sur la page pay.orzayah.com.
-  if (!operator || !accountNumber) {
-    const ins = await query(
-      `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, account_number, status)
-       VALUES ($1,$2,$3,$4,$5,$6,'LINK',NULL,'INITIATED') RETURNING id`,
-      [idempotencyKey, purpose, subjectType, subjectId, amountCentimes, months]
-    );
-    const linkPaymentId = ins.rows[0].id;
-    try {
-      const link = await createPaymentLink({
-        amount: amountCentimes,
-        description: `Abonnement gaRAN ${months} mois`,
-        idempotencyKey
-      });
-      await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [linkPaymentId, link.slug]);
-      return {
-        payment_id: linkPaymentId,
-        status: 'PENDING',
-        amount_fcfa: amountFcfa,
-        months,
-        payment_url: link.url,
-        next_action: { type: 'REDIRECT', url: link.url, message: 'Finalisez le paiement sur la page sécurisée ORZAYAH.' }
-      };
-    } catch (err) {
-      await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [linkPaymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
-      throw err;
-    }
-  }
 
   const { rows } = await query(
     `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, account_number, status)
@@ -110,17 +81,13 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
 
   let op;
   try {
-    op = row.operator === 'LINK' ? await getPaymentLink(row.reference) : await getOperation(row.reference ?? row.idempotency_key);
+    op = await getOperation(row.reference ?? row.idempotency_key);
   } catch (err) {
-    if (row.operator !== 'LINK' && (err.status === 404 || /introuvable/i.test(err.message || ''))) {
-      await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, 'Ancien paiement introuvable chez ORZAYAH']);
-      return { status: 'FAILED', applied: false, expires_at: null };
-    }
     logger.warn({ err: err.message, paymentId }, 'ORZAYAH : relecture du statut impossible');
     return { status: row.status, applied: false, expires_at: null, pending: true };
   }
   const status = opStatus(op) ?? row.status;
-  await query(`UPDATE orzayah_payments SET status = $2, failure_reason = $3 WHERE id = $1`, [paymentId, status, op.failureReason ?? op.transaction?.failureReason ?? op.failure_reason ?? null]);
+  await query(`UPDATE orzayah_payments SET status = $2, failure_reason = $3 WHERE id = $1`, [paymentId, status, op.failureReason ?? op.failure_reason ?? null]);
 
   if (status !== 'SUCCESS') return { status, applied: false, expires_at: null };
 
@@ -132,4 +99,60 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
     return exp;
   });
   return { status: 'SUCCESS', applied: true, expires_at: expires };
+}
+
+/* ------------------------------------------------------------------------- */
+/* Rattrapage des paiements en attente                                         */
+/* ------------------------------------------------------------------------- */
+
+const SUB_PURPOSES = ['subscription_merchant', 'subscription_consumer'];
+const SYNC_THROTTLE_MS = 15000;
+const lastSync = new Map();
+
+/**
+ * Relit auprès d'ORZAYAH les paiements d'abonnement encore en attente d'un compte et crédite
+ * l'abonnement s'ils sont payés (idempotent, via pollSubscription). Sert quand l'application a été
+ * fermée pendant le paiement : le suivi côté écran est alors perdu, mais la trace reste en base.
+ * Limité à 5 paiements récents (10 jours) ; appels ORZAYAH en parallèle avec une échéance globale.
+ * Renvoie { checked, applied, expires_at }.
+ */
+export async function syncSubscriptions({ subjectType, subjectId, force = false, deadlineMs = 8000 }) {
+  const key = `${subjectType}:${subjectId}`;
+  const now = Date.now();
+  if (!force && now - (lastSync.get(key) ?? 0) < SYNC_THROTTLE_MS) return { checked: 0, applied: false, expires_at: null, throttled: true };
+  if (lastSync.size > 5000) lastSync.clear();
+  lastSync.set(key, now);
+
+  const { rows } = await query(
+    `SELECT p.id FROM orzayah_payments p
+     WHERE p.subject_type = $1 AND p.subject_id = $2
+       AND p.purpose = ANY($3::text[])
+       AND p.applied IS NOT TRUE
+       AND (p.status NOT IN ('SUCCESS','FAILED','CANCELLED','EXPIRED','REFUNDED') OR p.status = 'SUCCESS')
+       AND COALESCE((to_jsonb(p)->>'created_at')::timestamptz, now()) > now() - interval '10 days'
+     ORDER BY (to_jsonb(p)->>'created_at') DESC NULLS LAST
+     LIMIT 5`,
+    [subjectType, subjectId, SUB_PURPOSES]
+  );
+  if (!rows.length) return { checked: 0, applied: false, expires_at: null };
+
+  const results = await Promise.race([
+    Promise.allSettled(rows.map((r) => pollSubscription(r.id, { subjectType, subjectId }))),
+    new Promise((resolve) => setTimeout(() => resolve(null), deadlineMs))
+  ]);
+  if (!results) {
+    logger.warn({ subjectType, subjectId, checked: rows.length }, 'Abonnement : relecture ORZAYAH trop lente (échéance atteinte)');
+    return { checked: rows.length, applied: false, expires_at: null, timeout: true };
+  }
+  let applied = false;
+  let expiresAt = null;
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value?.applied) {
+      applied = true;
+      expiresAt = r.value.expires_at ?? expiresAt;
+    } else if (r.status === 'rejected') {
+      logger.warn({ err: r.reason?.message, subjectType, subjectId }, 'Abonnement : relecture d’un paiement impossible');
+    }
+  }
+  return { checked: rows.length, applied, expires_at: expiresAt };
 }

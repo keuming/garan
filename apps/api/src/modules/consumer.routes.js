@@ -55,7 +55,7 @@ async function notifyEmailChange({ oldEmail, newEmail, name }) {
   }).catch(() => {});
 }
 import { OPERATORS } from '../lib/orzayah.js';
-import { initiateSubscription, pollSubscription, PLAN_FCFA } from './subscription.service.js';
+import { initiateSubscription, pollSubscription, syncSubscriptions, PLAN_FCFA } from './subscription.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { verifyAccessToken } from '../lib/security.js';
@@ -181,7 +181,12 @@ consumerRouter.post(
   }
 );
 
-consumerRouter.get('/me', requireConsumer, async (req, res) => res.json({ consumer: await loadConsumer(req.auth.sub) }));
+consumerRouter.get('/me', requireConsumer, async (req, res) => {
+  // Rattrape un abonnement payé alors que l'application avait été fermée (suivi perdu côté écran).
+  const sync = await syncSubscriptions({ subjectType: 'consumer', subjectId: req.auth.sub, deadlineMs: 4000 }).catch(() => null);
+  if (sync?.applied) await audit(req, 'consumer.subscription_activated', { entity: 'consumer', entityId: req.auth.sub });
+  res.json({ consumer: await loadConsumer(req.auth.sub) });
+});
 
 consumerRouter.patch(
   '/me',
@@ -529,6 +534,13 @@ consumerRouter.get(
     res.json({ ...r, consumer: await loadConsumer(req.auth.sub) });
   }
 );
+
+/** Relit les paiements d'abonnement en attente (bouton « Vérifier » / retour dans l'appli). */
+consumerRouter.post('/subscription/sync', requireConsumer, async (req, res) => {
+  const r = await syncSubscriptions({ subjectType: 'consumer', subjectId: req.auth.sub, force: true });
+  if (r.applied) await audit(req, 'consumer.subscription_activated', { entity: 'consumer', entityId: req.auth.sub });
+  res.json({ ...r, consumer: await loadConsumer(req.auth.sub) });
+});
 
 /** Vérification publique simple d'un IMEI, utile avant un achat d'occasion. */
 consumerRouter.get(
