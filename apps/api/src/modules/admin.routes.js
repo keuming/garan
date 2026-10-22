@@ -126,6 +126,94 @@ adminRouter.get('/dashboard', requireAdmin(...ALL), async (_req, res) => {
   res.json({ ...rows[0], daily: daily.rows });
 });
 
+/* ------------------------- Abonnements et paiements ------------------------- */
+
+const PAY_FINAL = ['SUCCESS', 'FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'];
+const PAY_FAILED = ['FAILED', 'CANCELLED', 'EXPIRED', 'REFUNDED'];
+
+/** États des abonnements et des paiements (comptes payés / non payés, encaissements, par nature de frais). */
+adminRouter.get('/payments/overview', requireAdmin(...STAFF), async (_req, res) => {
+  const fcfa = (centimes) => Math.round(Number(centimes ?? 0) / 100);
+  const notFinal = `NOT (COALESCE(status, '') = ANY($1::text[]))`;
+  const [accounts, byPurpose, manual, manualByMethod] = await Promise.all([
+    query(
+      `SELECT
+         (SELECT count(*)::int FROM consumers) AS consumers_total,
+         (SELECT count(*)::int FROM consumers WHERE subscription_expires_at > now()) AS consumers_paid,
+         (SELECT count(*)::int FROM consumers WHERE subscription_expires_at IS NOT NULL AND subscription_expires_at <= now()) AS consumers_expired,
+         (SELECT count(*)::int FROM consumers WHERE subscription_expires_at IS NULL) AS consumers_never,
+         (SELECT count(*)::int FROM consumers WHERE subscription_expires_at > now() AND subscription_expires_at < now() + interval '7 days') AS consumers_expiring,
+         (SELECT count(DISTINCT subject_id)::int FROM orzayah_payments
+            WHERE subject_type = 'consumer' AND NOT COALESCE(applied, false) AND ${notFinal}) AS consumers_pending,
+         (SELECT count(*)::int FROM organizations) AS orgs_total,
+         (SELECT count(*)::int FROM organizations WHERE status = 'active') AS orgs_active,
+         (SELECT count(*)::int FROM organizations WHERE status = 'trial') AS orgs_trial,
+         (SELECT count(*)::int FROM organizations WHERE status = 'expired') AS orgs_expired,
+         (SELECT count(*)::int FROM organizations WHERE status = 'suspended') AS orgs_suspended,
+         (SELECT count(*)::int FROM organizations WHERE status IN ('trial','active') AND subscription_expires_at < now() + interval '7 days') AS orgs_expiring,
+         (SELECT count(DISTINCT subject_id)::int FROM orzayah_payments
+            WHERE subject_type = 'organization' AND NOT COALESCE(applied, false) AND ${notFinal}) AS orgs_pending`,
+      [PAY_FINAL]
+    ),
+    query(
+      `SELECT purpose, subject_type,
+         count(*)::int AS total,
+         count(*) FILTER (WHERE COALESCE(applied, false))::int AS paid,
+         count(*) FILTER (WHERE NOT COALESCE(applied, false) AND ${notFinal})::int AS pending,
+         count(*) FILTER (WHERE COALESCE(status, '') = ANY($2::text[]))::int AS failed,
+         count(*) FILTER (WHERE status = 'SUCCESS' AND NOT COALESCE(applied, false))::int AS paid_not_credited,
+         COALESCE(sum(amount) FILTER (WHERE COALESCE(applied, false)), 0)::bigint AS collected,
+         COALESCE(sum(amount) FILTER (WHERE NOT COALESCE(applied, false) AND ${notFinal}), 0)::bigint AS pending_amount
+       FROM orzayah_payments
+       GROUP BY purpose, subject_type
+       ORDER BY purpose, subject_type`,
+      [PAY_FINAL, PAY_FAILED]
+    ),
+    query(
+      `SELECT COALESCE(sum(amount), 0)::bigint AS total,
+              COALESCE(sum(amount) FILTER (WHERE paid_at >= date_trunc('month', now())), 0)::bigint AS month,
+              count(*)::int AS n
+       FROM subscription_payments`
+    ),
+    query(
+      `SELECT method, count(*)::int AS n, COALESCE(sum(amount), 0)::bigint AS total
+       FROM subscription_payments GROUP BY method ORDER BY total DESC`
+    )
+  ]);
+
+  const payments = byPurpose.rows.map((r) => ({
+    purpose: r.purpose,
+    subject_type: r.subject_type,
+    total: r.total,
+    paid: r.paid,
+    pending: r.pending,
+    failed: r.failed,
+    paid_not_credited: r.paid_not_credited,
+    collected_fcfa: fcfa(r.collected),
+    pending_fcfa: fcfa(r.pending_amount)
+  }));
+  const merchantTotal = Number(manual.rows[0].total);
+  const consumerCollected = payments.filter((p) => p.subject_type === 'consumer').reduce((s, p) => s + p.collected_fcfa, 0);
+
+  res.json({
+    accounts: accounts.rows[0],
+    payments,
+    merchant_revenue: {
+      total_fcfa: merchantTotal,
+      month_fcfa: Number(manual.rows[0].month),
+      count: manual.rows[0].n,
+      by_method: manualByMethod.rows.map((m) => ({ method: m.method, count: m.n, total_fcfa: Number(m.total) }))
+    },
+    // Marchands : tous les encaissements enregistrés (en ligne et manuels). Usagers : paiements ORZAYAH crédités.
+    totals: {
+      collected_fcfa: merchantTotal + consumerCollected,
+      pending_fcfa: payments.reduce((s, p) => s + p.pending_fcfa, 0),
+      pending_count: payments.reduce((s, p) => s + p.pending, 0)
+    },
+    generated_at: new Date().toISOString()
+  });
+});
+
 /* ------------------------------- Organisations ------------------------------- */
 
 adminRouter.get(

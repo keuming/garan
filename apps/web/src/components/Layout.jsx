@@ -1,12 +1,14 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { LABELS } from '../format.js';
 import { Wordmark } from './ui.jsx';
+import { PaymentsOverview } from './PaymentsOverview.jsx';
 
 export function Layout() {
   const { admin, logout, can } = useAuth();
+  const { pathname } = useLocation();
   const { data: dash } = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get('/admin/dashboard'), refetchInterval: 60_000 });
 
   const links = [
@@ -54,6 +56,7 @@ export function Layout() {
       </aside>
       <main className="main">
         <Outlet />
+        {pathname === '/' && can('superadmin', 'admin') ? <PaymentsOverview /> : null}
       </main>
     </div>
   );
