@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+﻿import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useAuth } from '../auth.jsx';
 import { ErrorBox } from '../components/ui.jsx';
 import { fcfa, num } from '../format.js';
 
@@ -16,6 +17,7 @@ function Kpi({ label, value, hint, to }) {
 }
 
 export function Dashboard() {
+  const { can } = useAuth();
   const { data: d, error, isLoading } = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get('/admin/dashboard') });
   if (isLoading) return <div className="empty">Chargement…</div>;
   if (error) return <ErrorBox error={error} />;
@@ -29,6 +31,9 @@ export function Dashboard() {
           <h1>Tableau de bord</h1>
           <p>Activité du réseau gaRAN</p>
         </div>
+        {can('superadmin', 'admin') ? (
+          <Link to="/paiements" className="btn">Abonnements &amp; paiements</Link>
+        ) : null}
       </div>
 
       <div className="kpis">

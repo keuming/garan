@@ -1,14 +1,12 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+﻿import { NavLink, Outlet } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { LABELS } from '../format.js';
 import { Wordmark } from './ui.jsx';
-import { PaymentsOverview } from './PaymentsOverview.jsx';
 
 export function Layout() {
   const { admin, logout, can } = useAuth();
-  const { pathname } = useLocation();
   const { data: dash } = useQuery({ queryKey: ['dashboard'], queryFn: () => api.get('/admin/dashboard'), refetchInterval: 60_000 });
 
   const links = [
@@ -20,6 +18,7 @@ export function Layout() {
     { to: '/declarations', label: 'Déclarations de vol', count: dash?.theft_reports_pending, show: true },
     { to: '/blocages', label: 'Demandes de blocage', show: can('superadmin', 'admin', 'police') },
     { to: '/alertes', label: 'Alertes', count: dash?.alerts_open, show: can('superadmin', 'admin', 'police') },
+    { to: '/paiements', label: 'Abonnements & paiements', show: can('superadmin', 'admin') },
     { to: '/catalogue', label: 'Marques & modèles', show: true },
     { to: '/administrateurs', label: 'Administrateurs', show: can('superadmin') },
     { to: '/journal', label: 'Journal d’audit', show: can('superadmin') }
@@ -56,7 +55,6 @@ export function Layout() {
       </aside>
       <main className="main">
         <Outlet />
-        {pathname === '/' && can('superadmin', 'admin') ? <PaymentsOverview /> : null}
       </main>
     </div>
   );

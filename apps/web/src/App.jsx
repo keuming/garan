@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+﻿import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth.jsx';
 import { Layout } from './components/Layout.jsx';
 import { Login } from './pages/Login.jsx';
@@ -14,6 +14,7 @@ import { Admins } from './pages/Admins.jsx';
 import { AuditLog } from './pages/AuditLog.jsx';
 import { Profile } from './pages/Profile.jsx';
 import { Sales } from './pages/Sales.jsx';
+import { Payments } from './pages/Payments.jsx';
 import { Consumers } from './pages/Consumers.jsx';
 import { ConsumerDetail } from './pages/ConsumerDetail.jsx';
 import { PublicCertificate } from './pages/PublicCertificate.jsx';
@@ -45,6 +46,7 @@ export function App() {
       <Route element={<Protected><Layout /></Protected>}>
         <Route index element={<Dashboard />} />
         <Route path="profil" element={<Profile />} />
+        <Route path="paiements" element={<Protected roles={['superadmin', 'admin']}><Payments /></Protected>} />
         <Route path="organisations" element={<Protected roles={READERS}><Organizations /></Protected>} />
         <Route path="organisations/:id" element={<Protected roles={READERS}><OrganizationDetail /></Protected>} />
         <Route path="imei" element={<Protected roles={INVESTIGATORS}><ImeiSearch /></Protected>} />
