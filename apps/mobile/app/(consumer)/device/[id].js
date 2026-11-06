@@ -1,4 +1,4 @@
-import { Alert, View } from 'react-native';
+﻿import { Alert, Linking, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Button, Card, ErrorBanner, Loading, Muted, Row, Screen, Title } from '../../../src/components/ui';
@@ -74,6 +74,22 @@ export default function ConsumerDevice() {
       ) : (
         <Banner tone="info" title="Délié">Vous avez détaché ce téléphone de votre compte le {date(item.released_at)}.</Banner>
       )}
+
+      {reported ? (
+        <Card>
+          <Muted>Localiser mon téléphone</Muted>
+          <Muted style={{ color: colors.ink3, marginBottom: 10 }}>
+            gaRAN rend l’appareil invendable sur le réseau, mais ne le géolocalise pas. Pour tenter de le localiser, utilisez le service de votre compte, connecté avec le compte Google ou Apple du téléphone :
+          </Muted>
+          <View style={{ gap: 8 }}>
+            <Button title="Localiser (Android · Google)" variant="secondary" onPress={() => Linking.openURL('https://www.google.com/android/find')} />
+            <Button title="Localiser (iPhone · iCloud)" variant="secondary" onPress={() => Linking.openURL('https://www.icloud.com/find')} />
+          </View>
+          <Muted style={{ color: colors.ink3, marginTop: 10 }}>
+            Ne tentez jamais de récupérer l’appareil vous-même : transmettez la position à la police avec votre reçu d’achat.
+          </Muted>
+        </Card>
+      ) : null}
 
       <Card>
         <Row label="Marque" value={item.brand ?? '—'} />
