@@ -1,38 +1,48 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import { query, withTransaction } from '../db.js';
 import { notFound } from '../lib/errors.js';
-import { createDeposit, getOperation, opReference, opStatus, opNextAction } from '../lib/orzayah.js';
+import { createPaymentLink, getPaymentLink, getOperation, opStatus } from '../lib/orzayah.js';
 import { logger } from '../logger.js';
 
 /* Tarifs d'abonnement, en FCFA par mois. */
 export const PLAN_FCFA = { organization: 1000, consumer: 100 };
 
+/* Page de collecte ORZAYAH (pay.orzayah.com) : le payeur choisit Mobile Money ou carte. */
+const PAY_BASE = (process.env.ORZAYAH_PAY_BASE ?? 'https://pay.orzayah.com/p').replace(/\/$/, '');
+const payUrl = (slug) => `${PAY_BASE}/${encodeURIComponent(slug)}`;
+
 /**
- * Initie l'encaissement d'un abonnement par dépôt Mobile Money (ORZAYAH).
- * Crée la trace, appelle ORZAYAH, renvoie l'action à faire par le payeur (confirmation téléphone).
+ * Initie l'encaissement d'un abonnement par LIEN de collecte ORZAYAH (pay.orzayah.com).
+ * Le payeur est redirigé vers la page sécurisée et choisit lui-même son moyen de paiement :
+ * aucun opérateur ni numéro n'est demandé dans l'app. Crée la trace et renvoie l'URL de paiement.
  */
-export async function initiateSubscription({ subjectType, subjectId, months = 1, operator, accountNumber }) {
+export async function initiateSubscription({ subjectType, subjectId, months = 1 }) {
   const amountFcfa = PLAN_FCFA[subjectType] * months;
   const amountCentimes = amountFcfa * 100;
   const purpose = subjectType === 'organization' ? 'subscription_merchant' : 'subscription_consumer';
   const idempotencyKey = `sub-${subjectType.slice(0, 4)}-${crypto.randomUUID()}`;
+  const label = subjectType === 'organization' ? 'Abonnement marchand gaRAN' : 'Abonnement gaRAN';
+  const description = `${label} — ${months} mois`;
 
   const { rows } = await query(
-    `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, account_number, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'INITIATED') RETURNING id`,
-    [idempotencyKey, purpose, subjectType, subjectId, amountCentimes, months, operator, accountNumber]
+    `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, status)
+     VALUES ($1,$2,$3,$4,$5,$6,'LINK','INITIATED') RETURNING id`,
+    [idempotencyKey, purpose, subjectType, subjectId, amountCentimes, months]
   );
   const paymentId = rows[0].id;
 
   try {
-    const op = await createDeposit({ operator, accountNumber, amount: amountCentimes, idempotencyKey });
-    const reference = opReference(op);
-    const status = opStatus(op) ?? 'PENDING';
-    // Trace la forme brute renvoyée par ORZAYAH (clés + payload, sans secret) : indispensable
-    // pour vérifier quel champ porte la référence à sonder ensuite.
-    logger.info({ paymentId, reference, status, keys: op && typeof op === 'object' ? Object.keys(op) : null, raw: op }, 'ORZAYAH : dépôt créé');
-    await query(`UPDATE orzayah_payments SET reference = $2, status = $3 WHERE id = $1`, [paymentId, reference, status]);
-    return { payment_id: paymentId, status, amount_fcfa: amountFcfa, months, next_action: opNextAction(op) };
+    const link = await createPaymentLink({ amount: amountCentimes, description, idempotencyKey });
+    const url = link.url ?? payUrl(link.slug);
+    await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [paymentId, link.slug]);
+    return {
+      payment_id: paymentId,
+      status: 'PENDING',
+      amount_fcfa: amountFcfa,
+      months,
+      payment_url: url,
+      next_action: { type: 'REDIRECT', url }
+    };
   } catch (err) {
     await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
     throw err;
@@ -81,7 +91,9 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
 
   let op;
   try {
-    op = await getOperation(row.reference ?? row.idempotency_key);
+    op = row.operator === 'LINK'
+      ? await getPaymentLink(row.reference ?? row.idempotency_key)
+      : await getOperation(row.reference ?? row.idempotency_key);
   } catch (err) {
     logger.warn({ err: err.message, paymentId }, 'ORZAYAH : relecture du statut impossible');
     return { status: row.status, applied: false, expires_at: null, pending: true };
