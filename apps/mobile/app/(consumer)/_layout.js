@@ -1,9 +1,23 @@
+﻿import { useEffect } from 'react';
+import { AppState } from 'react-native';
 import { Redirect, Stack } from 'expo-router';
 import { useAuth } from '../../src/lib/auth';
 import { colors } from '../../src/lib/theme';
+import { reportSimFingerprint } from '../../src/lib/sim-watch';
 
 export default function ConsumerLayout() {
   const { ready, isConsumer, isMerchant } = useAuth();
+
+  // Surveillance SIM : à l'ouverture et à chaque réveil de l'app (usager connecté uniquement).
+  useEffect(() => {
+    if (!(ready && isConsumer)) return undefined;
+    reportSimFingerprint();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') reportSimFingerprint();
+    });
+    return () => sub.remove();
+  }, [ready, isConsumer]);
+
   if (ready && isMerchant) return <Redirect href="/(app)/home" />;
   if (ready && !isConsumer) return <Redirect href="/welcome" />;
   return (
