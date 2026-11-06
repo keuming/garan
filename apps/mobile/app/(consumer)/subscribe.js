@@ -1,15 +1,23 @@
-import { useEffect } from 'react';
+﻿import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { Stack, router } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { OrzayahPay } from '../../src/components/OrzayahPay';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 
+const nf = (n) => new Intl.NumberFormat('fr-FR').format(Number(n) || 0);
+
 export default function Subscribe() {
   const { reloadConsumer } = useAuth();
+  const { data: plan } = useQuery({ queryKey: ['consumer', 'plan'], queryFn: () => api.get('/consumer/subscription/plan') });
+  const amountLabel = plan ? (plan.is_first ? `${nf(plan.amount_due_fcfa)} FCFA` : `${nf(plan.month_fcfa)} FCFA / mois`) : '…';
+  const amountSub = plan
+    ? (plan.is_first
+        ? `Première activation : mise en service ${nf(plan.setup_fcfa)} FCFA + 1 mois ${nf(plan.month_fcfa)} FCFA. Ensuite ${nf(plan.month_fcfa)} FCFA / mois.`
+        : `Renouvellement : ${nf(plan.month_fcfa)} FCFA / mois.`)
+    : 'Protégez vos téléphones et débloquez tous les avantages gaRAN.';
 
-  // Paiement lancé puis interrompu (appli fermée ou tuée pendant le paiement) : le suivi de l'écran
-  // est perdu, donc on demande au serveur de relire les paiements en attente (à l'ouverture et au retour).
   useEffect(() => {
     let alive = true;
     async function sync() {
@@ -39,8 +47,8 @@ export default function Subscribe() {
       <Stack.Screen options={{ title: 'Abonnement' }} />
       <OrzayahPay
         title="Abonnement usager"
-        sub="Protégez vos téléphones et débloquez tous les avantages gaRAN."
-        amountLabel="100 FCFA / mois"
+        sub={amountSub}
+        amountLabel={amountLabel}
         onStart={({ operator, account_number }) => api.post('/consumer/subscription/orzayah', { operator, account_number, months: 1 })}
         onPoll={(id) => api.get(`/consumer/subscription/orzayah/${id}`)}
         onSuccess={async (r, isContinue) => { if (isContinue) router.replace('/(consumer)/home'); else await reloadConsumer?.(); }}

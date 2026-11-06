@@ -55,7 +55,7 @@ async function notifyEmailChange({ oldEmail, newEmail, name }) {
   }).catch(() => {});
 }
 import { OPERATORS } from '../lib/orzayah.js';
-import { initiateSubscription, pollSubscription, syncSubscriptions, PLAN_FCFA } from './subscription.service.js';
+import { initiateSubscription, pollSubscription, syncSubscriptions, subscriptionQuote } from './subscription.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { verifyAccessToken } from '../lib/security.js';
@@ -513,7 +513,10 @@ consumerRouter.post(
 
 /* ---------------------- Abonnement (paiement ORZAYAH) ---------------------- */
 
-consumerRouter.get('/subscription/plan', requireConsumer, (req, res) => res.json({ price_fcfa: PLAN_FCFA.consumer, currency: 'XOF', period: 'month' }));
+consumerRouter.get('/subscription/plan', requireConsumer, async (req, res) => {
+  const q = await subscriptionQuote({ subjectType: 'consumer', subjectId: req.auth.sub });
+  res.json({ ...q, price_fcfa: q.month_fcfa });
+});
 
 consumerRouter.post(
   '/subscription/orzayah',

@@ -4,8 +4,23 @@ import { notFound } from '../lib/errors.js';
 import { createPaymentLink, getPaymentLink, getOperation, opStatus } from '../lib/orzayah.js';
 import { logger } from '../logger.js';
 
-/* Tarifs d'abonnement, en FCFA par mois. */
-export const PLAN_FCFA = { organization: 1000, consumer: 100 };
+/* Tarifs d'abonnement en FCFA. PLAN_FCFA = abonnement mensuel ; SETUP_FCFA = mise en service
+   (activation du compte + propagation sur le réseau), facturée une seule fois à la 1re souscription.
+   1re souscription : mise en service + 1 mois (usager 1000 + 125 = 1125 ; marchand 10000 + 1000 = 11000).
+   Renouvellements : mensuel uniquement. */
+export const PLAN_FCFA = { organization: 1000, consumer: 125 };
+export const SETUP_FCFA = { organization: 10000, consumer: 1000 };
+
+/** Devis d'abonnement pour un sujet : applique la mise en service si c'est sa 1re souscription. */
+export async function subscriptionQuote({ subjectType, subjectId, months = 1 }) {
+  const table = subjectType === 'organization' ? 'organizations' : 'consumers';
+  const { rows } = await query(`SELECT subscription_expires_at FROM ${table} WHERE id = $1`, [subjectId]);
+  const isFirst = !rows[0]?.subscription_expires_at;
+  const monthFcfa = PLAN_FCFA[subjectType];
+  const setupFcfa = isFirst ? SETUP_FCFA[subjectType] : 0;
+  const amountDueFcfa = setupFcfa + monthFcfa * months;
+  return { month_fcfa: monthFcfa, setup_fcfa: SETUP_FCFA[subjectType], is_first: isFirst, months, amount_due_fcfa: amountDueFcfa, currency: 'XOF', period: 'month' };
+}
 
 /* Page de collecte ORZAYAH (pay.orzayah.com) : le payeur choisit Mobile Money ou carte. */
 const PAY_BASE = (process.env.ORZAYAH_PAY_BASE ?? 'https://pay.orzayah.com/p').replace(/\/$/, '');
@@ -17,12 +32,13 @@ const payUrl = (slug) => `${PAY_BASE}/${encodeURIComponent(slug)}`;
  * aucun opérateur ni numéro n'est demandé dans l'app. Crée la trace et renvoie l'URL de paiement.
  */
 export async function initiateSubscription({ subjectType, subjectId, months = 1 }) {
-  const amountFcfa = PLAN_FCFA[subjectType] * months;
+  const quote = await subscriptionQuote({ subjectType, subjectId, months });
+  const amountFcfa = quote.amount_due_fcfa;
   const amountCentimes = amountFcfa * 100;
   const purpose = subjectType === 'organization' ? 'subscription_merchant' : 'subscription_consumer';
   const idempotencyKey = `sub-${subjectType.slice(0, 4)}-${crypto.randomUUID()}`;
   const label = subjectType === 'organization' ? 'Abonnement marchand gaRAN' : 'Abonnement gaRAN';
-  const description = `${label} — ${months} mois`;
+  const description = quote.is_first ? `${label} — mise en service + ${months} mois` : `${label} — ${months} mois`;
 
   const { rows } = await query(
     `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, status)
@@ -40,6 +56,7 @@ export async function initiateSubscription({ subjectType, subjectId, months = 1 
       status: 'PENDING',
       amount_fcfa: amountFcfa,
       months,
+      is_first: quote.is_first,
       payment_url: url,
       next_action: { type: 'REDIRECT', url }
     };
