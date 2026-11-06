@@ -406,7 +406,8 @@ consumerRouter.post(
       merchant_name: z.string().trim().max(120).optional().nullable(),
       receipt_number: z.string().trim().max(60).optional().nullable(),
       receipt_key: z.string().max(200).optional().nullable(),
-      box_photo_key: z.string().max(200).optional().nullable()
+      box_photo_key: z.string().max(200).optional().nullable(),
+      account_email: zOptionalEmail
     })
   }),
   async (req, res) => {
@@ -445,9 +446,9 @@ consumerRouter.post(
         );
       }
       const reg = await c.query(
-        `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, merchant_name, receipt_number, receipt_key, box_photo_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [device.id, req.auth.sub, b.purchase_place ?? null, b.merchant_name ?? null, b.receipt_number ?? null, b.receipt_key ?? null, b.box_photo_key ?? null]
+        `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, merchant_name, receipt_number, receipt_key, box_photo_key, account_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [device.id, req.auth.sub, b.purchase_place ?? null, b.merchant_name ?? null, b.receipt_number ?? null, b.receipt_key ?? null, b.box_photo_key ?? null, b.account_email ?? null]
       );
       return reg.rows[0].id;
     });
