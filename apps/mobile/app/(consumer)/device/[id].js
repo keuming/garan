@@ -1,14 +1,27 @@
-﻿import { Alert, Linking, View } from 'react-native';
+﻿import { useState } from 'react';
+import { Alert, Linking, Platform, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Constants from 'expo-constants';
+import QRCode from 'qrcode';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { Banner, Button, Card, ErrorBanner, Loading, Muted, Row, Screen, Title } from '../../../src/components/ui';
 import { api } from '../../../src/lib/api';
+import { useAuth } from '../../../src/lib/auth';
 import { date } from '../../../src/lib/format';
 import { colors } from '../../../src/lib/theme';
+import { certificateHtml, certifiedReceiptHtml } from '../../../src/lib/certificate';
+
+const WEB_URL = (Constants.expoConfig?.extra?.publicWebUrl || 'https://garan.orzayah.com').replace(/\/$/, '');
 
 export default function ConsumerDevice() {
   const { id } = useLocalSearchParams();
   const qc = useQueryClient();
+  const { consumer } = useAuth();
+  const [docBusy, setDocBusy] = useState(null); // 'cert' | 'receipt' | null
+  const [docError, setDocError] = useState(null);
+  const paid = Boolean(consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date());
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['consumer', 'devices'],
     queryFn: () => api.get('/consumer/devices')
@@ -54,6 +67,36 @@ export default function ConsumerDevice() {
     );
   }
 
+  /** Génère et partage un document certifié gaRAN (certificat de sécurité ou reçu d'achat). */
+  async function generateDoc(kind) {
+    if (!item) return;
+    setDocBusy(kind);
+    setDocError(null);
+    try {
+      const verifyUrl = `${WEB_URL}/verifier?imei=${encodeURIComponent(item.imei1)}`;
+      const qrSvg = await QRCode.toString(verifyUrl, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).catch(() => '');
+      const owner = { full_name: consumer?.full_name, phone: consumer?.phone, email: consumer?.email };
+      const device = { ...item, acquired_at_fmt: date(item.acquired_at) };
+      const html = kind === 'cert' ? certificateHtml({ owner, device, qrSvg }) : certifiedReceiptHtml({ owner, device, qrSvg });
+      const title = kind === 'cert' ? 'Certificat de sécurité gaRAN' : 'Reçu d’achat certifié gaRAN';
+      if (Platform.OS === 'web') {
+        const w = window.open('', '_blank');
+        if (w) { w.document.write(html); w.document.close(); w.focus(); w.print(); }
+        return;
+      }
+      const { uri } = await Print.printToFileAsync({ html });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: title, UTI: 'com.adobe.pdf' });
+      } else {
+        await Print.printAsync({ uri });
+      }
+    } catch (e) {
+      setDocError(e);
+    } finally {
+      setDocBusy(null);
+    }
+  }
+
   if (isLoading) return <Screen><Loading /></Screen>;
   if (error) return <Screen><ErrorBanner error={error} /></Screen>;
   if (!item) return <Screen><Banner tone="info" title="Introuvable">Ce téléphone n’est plus dans votre liste.</Banner></Screen>;
@@ -96,6 +139,7 @@ export default function ConsumerDevice() {
         <Row label="Modèle" value={item.model ?? '—'} />
         <Row label="IMEI 1" value={item.imei1} mono />
         {item.imei2 ? <Row label="IMEI 2" value={item.imei2} mono /> : null}
+        {item.account_email ? <Row label="E-mail de l’appareil" value={item.account_email} /> : null}
         {item.color ? <Row label="Couleur" value={item.color} /> : null}
         {item.storage_gb ? <Row label="Stockage" value={`${item.storage_gb} Go`} /> : null}
         <Row label="Statut" value={reported ? (item.device_status === 'lost' ? 'Perdu' : 'Volé') : active ? 'Lié à votre compte' : 'Délié'} />
@@ -114,6 +158,31 @@ export default function ConsumerDevice() {
               {item.receipt_key ? 'Reçu' : ''}{item.receipt_key && item.box_photo_key ? ' et ' : ''}{item.box_photo_key ? 'photo du carton' : ''} enregistré(s).
             </Muted>
           ) : null}
+        </Card>
+      ) : null}
+
+      {active ? (
+        <Card>
+          <Muted>Mes documents gaRAN</Muted>
+          {paid ? (
+            <>
+              <Muted style={{ color: colors.ink3, marginBottom: 8 }}>
+                Générez et partagez votre certificat de sécurité et votre reçu d’achat certifiés (PDF, avec QR code de vérification).
+              </Muted>
+              <ErrorBanner error={docError} />
+              <View style={{ gap: 8 }}>
+                <Button title="📄 Certificat de sécurité gaRAN" onPress={() => generateDoc('cert')} loading={docBusy === 'cert'} />
+                <Button title="🧾 Reçu d’achat certifié" variant="secondary" onPress={() => generateDoc('receipt')} loading={docBusy === 'receipt'} />
+              </View>
+            </>
+          ) : (
+            <>
+              <Muted style={{ color: colors.ink3, marginBottom: 8 }}>
+                Les documents certifiés gaRAN sont réservés aux appareils dont l’abonnement est actif.
+              </Muted>
+              <Button title="Activer mon abonnement" onPress={() => router.push('/subscribe')} />
+            </>
+          )}
         </Card>
       ) : null}
 

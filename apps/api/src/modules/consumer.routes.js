@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
@@ -21,37 +21,37 @@ import { audit } from '../lib/audit.js';
 import { sendEmail, emailLayout } from '../lib/mailer.js';
 import { sendSms } from '../lib/sms.js';
 
-/** E-mail de bienvenue (si une adresse est fournie à l'inscription). Ne bloque jamais. */
+/** E-mail de bienvenue (si une adresse est fournie Ã  l'inscription). Ne bloque jamais. */
 async function sendWelcome({ email, name }) {
   if (!email) return;
   const hello = name ? `Bonjour ${name},` : 'Bonjour,';
   await sendEmail({
     to: email,
     subject: 'Bienvenue sur gaRAN',
-    html: emailLayout({ title: 'Bienvenue sur gaRAN', bodyHtml: `<p>${hello}</p><p>Votre compte gaRAN est créé. Protégez vos téléphones : liez leur IMEI et signalez un vol en un clic sur tout le réseau.</p>` }),
-    text: `${hello}\nVotre compte gaRAN est créé. Liez l'IMEI de vos téléphones pour les protéger.`
+    html: emailLayout({ title: 'Bienvenue sur gaRAN', bodyHtml: `<p>${hello}</p><p>Votre compte gaRAN est crÃ©Ã©. ProtÃ©gez vos tÃ©lÃ©phones : liez leur IMEI et signalez un vol en un clic sur tout le rÃ©seau.</p>` }),
+    text: `${hello}\nVotre compte gaRAN est crÃ©Ã©. Liez l'IMEI de vos tÃ©lÃ©phones pour les protÃ©ger.`
   }).catch(() => {});
 }
 
-/** Notifie un changement d'adresse e-mail : à l'ANCIENNE (sécurité) et à la NOUVELLE (confirmation). Ne bloque jamais. */
+/** Notifie un changement d'adresse e-mail : Ã  l'ANCIENNE (sÃ©curitÃ©) et Ã  la NOUVELLE (confirmation). Ne bloque jamais. */
 async function notifyEmailChange({ oldEmail, newEmail, name }) {
   const hello = name ? `Bonjour ${name},` : 'Bonjour,';
   if (oldEmail) {
     await sendEmail({
       to: oldEmail,
-      subject: 'Votre adresse e-mail gaRAN a été modifiée',
+      subject: 'Votre adresse e-mail gaRAN a Ã©tÃ© modifiÃ©e',
       html: emailLayout({
-        title: 'Adresse e-mail modifiée',
-        bodyHtml: `<p>${hello}</p><p>L'adresse e-mail de votre compte gaRAN vient d'être remplacée par <strong>${newEmail}</strong>.</p><p>Si vous êtes à l'origine de ce changement, aucune action n'est nécessaire.</p><p><strong>Si vous n'êtes pas à l'origine de ce changement</strong>, votre compte est peut-être compromis : modifiez votre code PIN immédiatement et contactez-nous.</p>`
+        title: 'Adresse e-mail modifiÃ©e',
+        bodyHtml: `<p>${hello}</p><p>L'adresse e-mail de votre compte gaRAN vient d'Ãªtre remplacÃ©e par <strong>${newEmail}</strong>.</p><p>Si vous Ãªtes Ã  l'origine de ce changement, aucune action n'est nÃ©cessaire.</p><p><strong>Si vous n'Ãªtes pas Ã  l'origine de ce changement</strong>, votre compte est peut-Ãªtre compromis : modifiez votre code PIN immÃ©diatement et contactez-nous.</p>`
       }),
-      text: `${hello}\nL'adresse e-mail de votre compte gaRAN a été remplacée par ${newEmail}. Si vous n'êtes pas à l'origine de ce changement, modifiez votre code PIN et contactez-nous.`
+      text: `${hello}\nL'adresse e-mail de votre compte gaRAN a Ã©tÃ© remplacÃ©e par ${newEmail}. Si vous n'Ãªtes pas Ã  l'origine de ce changement, modifiez votre code PIN et contactez-nous.`
     }).catch(() => {});
   }
   await sendEmail({
     to: newEmail,
     subject: 'Confirmation de votre nouvelle adresse e-mail gaRAN',
-    html: emailLayout({ title: 'Nouvelle adresse e-mail confirmée', bodyHtml: `<p>${hello}</p><p>Cette adresse est désormais associée à votre compte gaRAN.</p>` }),
-    text: `${hello}\nCette adresse est désormais associée à votre compte gaRAN.`
+    html: emailLayout({ title: 'Nouvelle adresse e-mail confirmÃ©e', bodyHtml: `<p>${hello}</p><p>Cette adresse est dÃ©sormais associÃ©e Ã  votre compte gaRAN.</p>` }),
+    text: `${hello}\nCette adresse est dÃ©sormais associÃ©e Ã  votre compte gaRAN.`
   }).catch(() => {});
 }
 import { OPERATORS } from '../lib/orzayah.js';
@@ -61,9 +61,9 @@ import { authLimiter } from '../middleware/rateLimit.js';
 import { verifyAccessToken } from '../lib/security.js';
 
 /**
- * Espace « usager » : l'acheteur final enregistre lui-même le téléphone qu'il a
- * acquis et le relie à son compte (linkage), et le délie quand il le revend.
- * Connexion par téléphone + code PIN, comme les marchands.
+ * Espace Â« usager Â» : l'acheteur final enregistre lui-mÃªme le tÃ©lÃ©phone qu'il a
+ * acquis et le relie Ã  son compte (linkage), et le dÃ©lie quand il le revend.
+ * Connexion par tÃ©lÃ©phone + code PIN, comme les marchands.
  */
 export const consumerRouter = Router();
 
@@ -87,7 +87,7 @@ async function requireConsumer(req, _res, next) {
   if (scheme !== 'Bearer' || !token) throw unauthorized();
   const claims = verifyAccessToken(token, 'consumer');
   const { rows } = await query(`SELECT id, status FROM consumers WHERE id = $1`, [claims.sub]);
-  if (!rows[0] || rows[0].status !== 'active') throw unauthorized('Compte désactivé');
+  if (!rows[0] || rows[0].status !== 'active') throw unauthorized('Compte dÃ©sactivÃ©');
   req.auth = { typ: 'consumer', sub: rows[0].id };
   next();
 }
@@ -101,7 +101,7 @@ consumerRouter.post(
   async (req, res) => {
     const b = req.v.body;
     if ((await query(`SELECT 1 FROM consumers WHERE phone = $1`, [b.phone])).rowCount) {
-      throw conflict('PHONE_TAKEN', 'Ce numéro a déjà un compte. Connectez-vous.');
+      throw conflict('PHONE_TAKEN', 'Ce numÃ©ro a dÃ©jÃ  un compte. Connectez-vous.');
     }
     const { rows } = await query(
       `INSERT INTO consumers (full_name, phone, email, pin_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -131,10 +131,10 @@ consumerRouter.post(
     const c = rows[0];
     if (!c) {
       await verifySecret(pin, DUMMY_HASH);
-      throw new AppError(401, 'INVALID_CREDENTIALS', 'Numéro ou code PIN incorrect');
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'NumÃ©ro ou code PIN incorrect');
     }
     if (c.locked_until && new Date(c.locked_until) > new Date()) {
-      throw new AppError(423, 'ACCOUNT_LOCKED', 'Trop de tentatives. Réessayez plus tard.', { locked_until: c.locked_until });
+      throw new AppError(423, 'ACCOUNT_LOCKED', 'Trop de tentatives. RÃ©essayez plus tard.', { locked_until: c.locked_until });
     }
     if (!(await verifySecret(pin, c.pin_hash))) {
       const attempts = c.failed_attempts + 1;
@@ -144,11 +144,11 @@ consumerRouter.post(
            locked_until = CASE WHEN $3 THEN now() + make_interval(mins => $4) ELSE locked_until END WHERE id = $1`,
         [c.id, lock ? 0 : attempts, lock, config.PIN_LOCK_MINUTES]
       );
-      throw new AppError(401, 'INVALID_CREDENTIALS', 'Numéro ou code PIN incorrect', {
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'NumÃ©ro ou code PIN incorrect', {
         remaining_attempts: lock ? 0 : config.PIN_MAX_ATTEMPTS - attempts
       });
     }
-    if (c.status !== 'active') throw unauthorized('Compte désactivé');
+    if (c.status !== 'active') throw unauthorized('Compte dÃ©sactivÃ©');
     await query(`UPDATE consumers SET failed_attempts = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, [c.id]);
     req.auth = { typ: 'consumer', sub: c.id };
     await audit(req, 'consumer.login', { entity: 'consumer', entityId: c.id });
@@ -167,7 +167,7 @@ consumerRouter.post(
     const { subjectType, subjectId, refreshToken } = await rotateRefreshToken(req.v.body.refresh_token, meta(req));
     if (subjectType !== 'consumer') throw unauthorized();
     const { rows } = await query(`SELECT id, status FROM consumers WHERE id = $1`, [subjectId]);
-    if (!rows[0] || rows[0].status !== 'active') throw unauthorized('Compte désactivé');
+    if (!rows[0] || rows[0].status !== 'active') throw unauthorized('Compte dÃ©sactivÃ©');
     res.json({ access_token: accessToken(rows[0]), refresh_token: refreshToken });
   }
 );
@@ -182,7 +182,7 @@ consumerRouter.post(
 );
 
 consumerRouter.get('/me', requireConsumer, async (req, res) => {
-  // Rattrape un abonnement payé alors que l'application avait été fermée (suivi perdu côté écran).
+  // Rattrape un abonnement payÃ© alors que l'application avait Ã©tÃ© fermÃ©e (suivi perdu cÃ´tÃ© Ã©cran).
   const sync = await syncSubscriptions({ subjectType: 'consumer', subjectId: req.auth.sub, deadlineMs: 4000 }).catch(() => null);
   if (sync?.applied) await audit(req, 'consumer.subscription_activated', { entity: 'consumer', entityId: req.auth.sub });
   res.json({ consumer: await loadConsumer(req.auth.sub) });
@@ -209,7 +209,7 @@ consumerRouter.patch(
     }).filter(([, v]) => v !== undefined);
     if (!fields.length) throw badRequest('NOTHING_TO_UPDATE', 'Aucune modification');
     await query(`UPDATE consumers SET ${fields.map(([k], i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`, [req.auth.sub, ...fields.map(([, v]) => v)]);
-    // Changement d'adresse e-mail → on prévient l'ancienne (anti-détournement) et on confirme la nouvelle.
+    // Changement d'adresse e-mail â†’ on prÃ©vient l'ancienne (anti-dÃ©tournement) et on confirme la nouvelle.
     const newEmail = req.v.body.email;
     if (newEmail && (current?.email ?? null) !== newEmail) {
       await notifyEmailChange({ oldEmail: current?.email ?? null, newEmail, name: req.v.body.full_name ?? current?.full_name });
@@ -218,19 +218,19 @@ consumerRouter.patch(
   }
 );
 
-/** Alerte un changement de carte SIM : e-mail au propriétaire + SMS au numéro de secours. Ne bloque jamais. */
+/** Alerte un changement de carte SIM : e-mail au propriÃ©taire + SMS au numÃ©ro de secours. Ne bloque jamais. */
 async function alertSimChange({ consumer, newNumber, operator }) {
   const name = consumer.full_name || 'un usager';
-  const detail = [newNumber ? `nouveau numéro ${newNumber}` : null, operator ? `opérateur ${operator}` : null].filter(Boolean).join(', ');
+  const detail = [newNumber ? `nouveau numÃ©ro ${newNumber}` : null, operator ? `opÃ©rateur ${operator}` : null].filter(Boolean).join(', ');
   if (consumer.email) {
     await sendEmail({
       to: consumer.email,
-      subject: 'gaRAN — changement de carte SIM détecté',
+      subject: 'gaRAN â€” changement de carte SIM dÃ©tectÃ©',
       html: emailLayout({
-        title: 'Changement de carte SIM détecté',
-        bodyHtml: `<p>Bonjour ${consumer.full_name || ''},</p><p>Une <strong>nouvelle carte SIM</strong> vient d'être détectée dans un téléphone enregistré sur votre compte gaRAN${detail ? ` (${detail})` : ''}.</p><p>Si c'est vous (changement d'opérateur ou nouvelle SIM), ignorez ce message.</p><p><strong>Si ce n'est pas vous</strong>, votre téléphone a peut-être été volé : ouvrez l'app et signalez-le immédiatement (Déclarer un vol), puis prévenez votre contact de secours.</p>`
+        title: 'Changement de carte SIM dÃ©tectÃ©',
+        bodyHtml: `<p>Bonjour ${consumer.full_name || ''},</p><p>Une <strong>nouvelle carte SIM</strong> vient d'Ãªtre dÃ©tectÃ©e dans un tÃ©lÃ©phone enregistrÃ© sur votre compte gaRAN${detail ? ` (${detail})` : ''}.</p><p>Si c'est vous (changement d'opÃ©rateur ou nouvelle SIM), ignorez ce message.</p><p><strong>Si ce n'est pas vous</strong>, votre tÃ©lÃ©phone a peut-Ãªtre Ã©tÃ© volÃ© : ouvrez l'app et signalez-le immÃ©diatement (DÃ©clarer un vol), puis prÃ©venez votre contact de secours.</p>`
       }),
-      text: `Changement de carte SIM détecté sur un téléphone de votre compte gaRAN${detail ? ` (${detail})` : ''}. Si ce n'est pas vous, signalez un vol immédiatement.`
+      text: `Changement de carte SIM dÃ©tectÃ© sur un tÃ©lÃ©phone de votre compte gaRAN${detail ? ` (${detail})` : ''}. Si ce n'est pas vous, signalez un vol immÃ©diatement.`
     }).catch(() => {});
   }
   if (consumer.emergency_number) {
@@ -244,7 +244,7 @@ async function alertSimChange({ consumer, newNumber, operator }) {
 /**
  * Signalement d'un changement de carte SIM par l'app.
  * L'app envoie l'identifiant de la SIM courante ; au premier appel on l'enregistre,
- * et si l'identifiant change ensuite, on déclenche les alertes.
+ * et si l'identifiant change ensuite, on dÃ©clenche les alertes.
  */
 consumerRouter.post(
   '/security/sim-change',
@@ -264,7 +264,7 @@ consumerRouter.post(
     const simId = req.v.body.sim_id;
     const changed = Boolean(prev) && prev !== simId;
 
-    // Appareil concerné (si l'app fournit l'IMEI) + contexte « après vol »
+    // Appareil concernÃ© (si l'app fournit l'IMEI) + contexte Â« aprÃ¨s vol Â»
     let device = null;
     if (req.v.body.imei) {
       device = (await query(`SELECT id, status FROM devices WHERE imei1 = $1 OR imei2 = $1`, [req.v.body.imei])).rows[0] ?? null;
@@ -281,7 +281,7 @@ consumerRouter.post(
 
     await query(`UPDATE consumers SET last_sim_id = $2 WHERE id = $1`, [req.auth.sub, simId]);
 
-    // On trace la SIM si elle change, ou dès qu'elle apparaît sur un appareil volé (traçabilité back-office).
+    // On trace la SIM si elle change, ou dÃ¨s qu'elle apparaÃ®t sur un appareil volÃ© (traÃ§abilitÃ© back-office).
     if (changed || afterTheft) {
       await query(
         `INSERT INTO sim_events (consumer_id, device_id, sim_id, phone_number, operator, ip, after_theft)
@@ -310,7 +310,7 @@ consumerRouter.post(
   }
 );
 
-/* ------------------------- Pièces justificatives ------------------------- */
+/* ------------------------- PiÃ¨ces justificatives ------------------------- */
 
 const ALLOWED = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.UPLOAD_MAX_MB * 1024 * 1024, files: 1 } });
@@ -325,7 +325,7 @@ function sniff(buf) {
 }
 
 consumerRouter.post('/uploads', requireConsumer, upload.single('file'), async (req, res) => {
-  if (!req.file) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
+  if (!req.file) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ Â« file Â»)');
   const mime = sniff(req.file.buffer);
   if (!mime) throw badRequest('INVALID_FILE_TYPE', 'Image (JPEG, PNG, WebP) ou PDF attendu');
   const now = new Date();
@@ -334,11 +334,11 @@ consumerRouter.post('/uploads', requireConsumer, upload.single('file'), async (r
   res.status(201).json({ key });
 });
 
-/* ------------------------- Téléphones de l'usager ------------------------- */
+/* ------------------------- TÃ©lÃ©phones de l'usager ------------------------- */
 
 const REPORTED = new Set(['stolen', 'lost', 'blocked']);
 
-/** Avant de lier : état de l'IMEI et disponibilité. */
+/** Avant de lier : Ã©tat de l'IMEI et disponibilitÃ©. */
 consumerRouter.get(
   '/devices/check/:imei',
   requireConsumer,
@@ -365,12 +365,12 @@ consumerRouter.get(
       mine_already: mineAlready,
       held_by_other: heldByOther,
       message: reported
-        ? 'Ce téléphone est signalé volé ou perdu. Rapprochez-vous de la police.'
+        ? 'Ce tÃ©lÃ©phone est signalÃ© volÃ© ou perdu. Rapprochez-vous de la police.'
         : mineAlready
-          ? 'Ce téléphone est déjà enregistré à votre compte.'
+          ? 'Ce tÃ©lÃ©phone est dÃ©jÃ  enregistrÃ© Ã  votre compte.'
           : heldByOther
-            ? 'Ce téléphone est déjà enregistré par un autre usager. S’il vous appartient, il doit d’abord être délié par l’ancien propriétaire.'
-            : 'Téléphone disponible à l’enregistrement.'
+            ? 'Ce tÃ©lÃ©phone est dÃ©jÃ  enregistrÃ© par un autre usager. Sâ€™il vous appartient, il doit dâ€™abord Ãªtre dÃ©liÃ© par lâ€™ancien propriÃ©taire.'
+            : 'TÃ©lÃ©phone disponible Ã  lâ€™enregistrement.'
     });
   }
 );
@@ -378,7 +378,7 @@ consumerRouter.get(
 consumerRouter.get('/devices', requireConsumer, async (req, res) => {
   const { rows } = await query(
     `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
-            r.receipt_number, r.receipt_key, r.box_photo_key,
+            r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email,
             d.id AS device_id, d.imei1, d.imei2, d.status AS device_status, d.color, d.storage_gb,
             COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
      FROM device_registrations r
@@ -390,7 +390,7 @@ consumerRouter.get('/devices', requireConsumer, async (req, res) => {
   res.json({ items: rows });
 });
 
-/** Linkage : enregistre un téléphone acquis et le relie au compte de l'usager. */
+/** Linkage : enregistre un tÃ©lÃ©phone acquis et le relie au compte de l'usager. */
 consumerRouter.post(
   '/devices/register',
   requireConsumer,
@@ -413,7 +413,7 @@ consumerRouter.post(
     const b = req.v.body;
     const prefix = `consumer-docs/${req.auth.sub}/`;
     for (const key of [b.receipt_key, b.box_photo_key]) {
-      if (key && !key.startsWith(prefix)) throw badRequest('INVALID_DOCUMENT', 'Pièce jointe invalide');
+      if (key && !key.startsWith(prefix)) throw badRequest('INVALID_DOCUMENT', 'PiÃ¨ce jointe invalide');
     }
     const result = await withTransaction(async (c) => {
       const found = await c.query(
@@ -422,15 +422,15 @@ consumerRouter.post(
       );
       let device = found.rows[0];
       if (device && REPORTED.has(device.status)) {
-        throw conflict('DEVICE_REPORTED', 'Ce téléphone est signalé volé ou perdu : enregistrement impossible.');
+        throw conflict('DEVICE_REPORTED', 'Ce tÃ©lÃ©phone est signalÃ© volÃ© ou perdu : enregistrement impossible.');
       }
       if (device && device.owner_type === 'consumer') {
-        if (device.owner_consumer_id === req.auth.sub) throw conflict('ALREADY_MINE', 'Ce téléphone est déjà à votre compte.');
-        throw conflict('HELD_BY_OTHER', 'Ce téléphone est enregistré par un autre usager ; il doit d’abord être délié.');
+        if (device.owner_consumer_id === req.auth.sub) throw conflict('ALREADY_MINE', 'Ce tÃ©lÃ©phone est dÃ©jÃ  Ã  votre compte.');
+        throw conflict('HELD_BY_OTHER', 'Ce tÃ©lÃ©phone est enregistrÃ© par un autre usager ; il doit dâ€™abord Ãªtre dÃ©liÃ©.');
       }
       if (!device) {
         const brandLabel = b.brand_label && b.brand_label.trim() ? b.brand_label.trim() : null;
-        if ((!b.brand_id && !brandLabel) || (!b.model_id && !b.model_label)) throw badRequest('DEVICE_DETAILS_REQUIRED', 'Marque et modèle requis pour un téléphone inconnu');
+        if ((!b.brand_id && !brandLabel) || (!b.model_id && !b.model_label)) throw badRequest('DEVICE_DETAILS_REQUIRED', 'Marque et modÃ¨le requis pour un tÃ©lÃ©phone inconnu');
         const freeBrand = !b.brand_id;
         const ins = await c.query(
           `INSERT INTO devices (imei1, imei2, brand_id, brand_label, model_id, model_label, owner_type, owner_consumer_id)
@@ -456,7 +456,7 @@ consumerRouter.post(
   }
 );
 
-/** Délinkage : l'usager a revendu/cédé le téléphone ; il le détache de son compte. */
+/** DÃ©linkage : l'usager a revendu/cÃ©dÃ© le tÃ©lÃ©phone ; il le dÃ©tache de son compte. */
 consumerRouter.post(
   '/devices/:registrationId/release',
   requireConsumer,
@@ -481,7 +481,7 @@ consumerRouter.post(
   }
 );
 
-/** Déclaration de vol / perte d'un téléphone lié : l'usager est le propriétaire, on confirme directement. */
+/** DÃ©claration de vol / perte d'un tÃ©lÃ©phone liÃ© : l'usager est le propriÃ©taire, on confirme directement. */
 consumerRouter.post(
   '/devices/:registrationId/report-theft',
   requireConsumer,
@@ -494,7 +494,7 @@ consumerRouter.post(
          WHERE r.id = $1 AND r.consumer_id = $2 AND r.status = 'active' FOR UPDATE OF d`,
         [req.v.params.registrationId, req.auth.sub]
       );
-      if (!rows[0]) throw notFound('Téléphone lié introuvable');
+      if (!rows[0]) throw notFound('TÃ©lÃ©phone liÃ© introuvable');
       const { device_id: deviceId, imei1 } = rows[0];
       const rep = await c.query(
         `INSERT INTO theft_reports (device_id, imei, kind, reporter_name, reporter_phone, id_doc_type, id_doc_number,
@@ -506,7 +506,7 @@ consumerRouter.post(
       return rep.rows[0].id;
     });
     await audit(req, 'consumer.theft_reported', { entity: 'theft_report', entityId: result, meta: { kind: req.v.body.kind } });
-    res.status(201).json({ reference: result, status: 'confirmed', message: 'Téléphone signalé dans tout le réseau gaRAN. Rapprochez-vous de la police avec votre reçu.' });
+    res.status(201).json({ reference: result, status: 'confirmed', message: 'TÃ©lÃ©phone signalÃ© dans tout le rÃ©seau gaRAN. Rapprochez-vous de la police avec votre reÃ§u.' });
   }
 );
 
@@ -517,7 +517,7 @@ consumerRouter.get('/subscription/plan', requireConsumer, (req, res) => res.json
 consumerRouter.post(
   '/subscription/orzayah',
   requireConsumer,
-  validate({ body: z.object({ operator: z.enum(OPERATORS).optional(), account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide').optional(), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
+  validate({ body: z.object({ operator: z.enum(OPERATORS).optional(), account_number: z.string().trim().regex(/^\d{8,15}$/, 'NumÃ©ro Mobile Money invalide').optional(), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
   async (req, res) => {
     const r = await initiateSubscription({ subjectType: 'consumer', subjectId: req.auth.sub, months: req.v.body.months, operator: req.v.body.operator, accountNumber: req.v.body.account_number });
     await audit(req, 'consumer.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
@@ -535,14 +535,14 @@ consumerRouter.get(
   }
 );
 
-/** Relit les paiements d'abonnement en attente (bouton « Vérifier » / retour dans l'appli). */
+/** Relit les paiements d'abonnement en attente (bouton Â« VÃ©rifier Â» / retour dans l'appli). */
 consumerRouter.post('/subscription/sync', requireConsumer, async (req, res) => {
   const r = await syncSubscriptions({ subjectType: 'consumer', subjectId: req.auth.sub, force: true });
   if (r.applied) await audit(req, 'consumer.subscription_activated', { entity: 'consumer', entityId: req.auth.sub });
   res.json({ ...r, consumer: await loadConsumer(req.auth.sub) });
 });
 
-/** Vérification publique simple d'un IMEI, utile avant un achat d'occasion. */
+/** VÃ©rification publique simple d'un IMEI, utile avant un achat d'occasion. */
 consumerRouter.get(
   '/public/imei/:imei',
   validate({ params: z.object({ imei: zImei }) }),

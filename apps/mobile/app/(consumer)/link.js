@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -17,7 +17,7 @@ export default function LinkPhone() {
   const [imei, setImei] = useState('');
   const [imei2, setImei2] = useState('');
   const [device, setDevice] = useState({ brand_id: undefined, model_id: undefined, model_label: undefined });
-  const [f, setF] = useState({ purchase_place: '', merchant_name: '', receipt_number: '', receipt_key: null, box_photo_key: null });
+  const [f, setF] = useState({ account_email: '', purchase_place: '', merchant_name: '', receipt_number: '', receipt_key: null, box_photo_key: null });
   const set = (k) => (v) => setF((p) => ({ ...p, [k]: v }));
 
   const check = useMutation({ mutationFn: () => api.get(`/consumer/devices/check/${imei}`) });
@@ -31,6 +31,7 @@ export default function LinkPhone() {
         brand_id: r?.known ? undefined : device.brand_id,
         model_id: r?.known ? undefined : device.model_id,
         model_label: r?.known ? undefined : device.model_label || undefined,
+        account_email: f.account_email || undefined,
         purchase_place: f.purchase_place || undefined,
         merchant_name: f.merchant_name || undefined,
         receipt_number: f.receipt_number || undefined,
@@ -95,6 +96,19 @@ export default function LinkPhone() {
             <Row label="Contact" value={consumer?.phone ?? '—'} />
             {consumer?.email ? <Row label="E-mail" value={consumer.email} /> : null}
             <Muted style={{ color: colors.ink3 }}>Ces informations proviennent de votre compte. Modifiez-les depuis « Mon compte ».</Muted>
+          </Card>
+
+          <Card>
+            <Muted>Compte enregistré sur ce téléphone</Muted>
+            <Input
+              label="E-mail du compte de l’appareil (Gmail sur Android, iCloud sur iOS)"
+              value={f.account_email}
+              onChangeText={set('account_email')}
+              placeholder="ex. prenom.nom@gmail.com"
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <Muted style={{ color: colors.ink3 }}>Cet e-mail figurera sur votre certificat de sécurité et aide à prouver la propriété de l’appareil.</Muted>
           </Card>
 
           <Card>
