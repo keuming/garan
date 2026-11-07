@@ -12,8 +12,8 @@ export default function Subscribe() {
   const amountLabel = plan ? (plan.is_first ? `${nf(plan.amount_due_fcfa)} FCFA` : `${nf(plan.month_fcfa)} FCFA / mois`) : '…';
   const amountSub = plan
     ? (plan.is_first
-        ? `Première activation : mise en service ${nf(plan.setup_fcfa)} FCFA + 1 mois ${nf(plan.month_fcfa)} FCFA. Ensuite ${nf(plan.month_fcfa)} FCFA / mois.`
-        : `Renouvellement : ${nf(plan.month_fcfa)} FCFA / mois.`)
+        ? `Mise en service et propagation sur le réseau gaRAN : ${nf(plan.setup_fcfa)} FCFA + 1er mois ${nf(plan.month_fcfa)} FCFA = ${nf(plan.amount_due_fcfa)} FCFA. Ensuite ${nf(plan.month_fcfa)} FCFA/mois (sécurisation, archivage et sauvegarde des données).`
+        : `Renouvellement : ${nf(plan.month_fcfa)} FCFA/mois (sécurisation, archivage et sauvegarde des données).`)
     : 'Activez votre abonnement gaRAN pour enregistrer vos opérations sans interruption.';
   return (
     <>

@@ -1,4 +1,4 @@
-﻿import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Banner, Button, Card, Loading, Muted, Screen, Wordmark } from '../../src/components/ui';
@@ -35,23 +35,23 @@ function InfoRow({ label, value }) {
 function PhoneCard({ item }) {
   const active = item.status === 'active';
   const reported = ['stolen', 'lost', 'blocked'].includes(item.device_status);
-  const specs = [item.color, item.storage_gb ? `${item.storage_gb} Go` : null].filter(Boolean).join(' Â· ');
+  const specs = [item.color, item.storage_gb ? `${item.storage_gb} Go` : null].filter(Boolean).join(' · ');
   return (
     <Pressable accessibilityRole="button" onPress={() => router.push(`/device/${item.registration_id}`)} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
       <Card style={{ gap: 8, borderLeftWidth: 4, borderLeftColor: reported ? colors.blood : active ? colors.green : colors.line }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={st.phoneTitle} numberOfLines={1}>{item.brand ? `${item.brand} ${item.model ?? ''}`.trim() : 'TÃ©lÃ©phone'}</Text>
+          <Text style={st.phoneTitle} numberOfLines={1}>{item.brand ? `${item.brand} ${item.model ?? ''}`.trim() : 'Téléphone'}</Text>
           <Text style={[st.badge, reported ? st.badgeBlood : active ? st.badgeOk : st.badgeMuted]}>
-            {reported ? 'VOL' : active ? 'LiÃ©' : 'DÃ©liÃ©'}
+            {reported ? 'VOL' : active ? 'Lié' : 'Délié'}
           </Text>
         </View>
         <View style={{ gap: 3 }}>
           <InfoRow label="IMEI 1" value={item.imei1} />
           {item.imei2 ? <InfoRow label="IMEI 2" value={item.imei2} /> : null}
-          {specs ? <InfoRow label="CaractÃ©ristiques" value={specs} /> : null}
-          <InfoRow label={active ? 'LiÃ© le' : 'DÃ©liÃ© le'} value={date(active ? item.acquired_at : item.released_at)} />
+          {specs ? <InfoRow label="Caractéristiques" value={specs} /> : null}
+          <InfoRow label={active ? 'Lié le' : 'Délié le'} value={date(active ? item.acquired_at : item.released_at)} />
           {item.merchant_name ? <InfoRow label="Marchand" value={item.merchant_name} /> : null}
-          {item.receipt_number ? <InfoRow label="NÂ° reÃ§u" value={item.receipt_number} /> : null}
+          {item.receipt_number ? <InfoRow label="N° reçu" value={item.receipt_number} /> : null}
         </View>
       </Card>
     </Pressable>
@@ -85,33 +85,33 @@ export default function ConsumerHome() {
           <ProtectedHero
             tone="protected"
             eyebrow={`Bonjour ${firstName}`}
-            title="Vous Ãªtes protÃ©gÃ©"
-            subtitle={`${active.length} tÃ©lÃ©phone(s) liÃ©(s) Â· abonnement actif jusqu'au ${date(consumer.subscription_expires_at)}`}
+            title="Vous êtes protégé"
+            subtitle={`${active.length} téléphone(s) lié(s) · abonnement actif jusqu'au ${date(consumer.subscription_expires_at)}`}
           />
         ) : (
           <ProtectedHero
             tone="soft"
             eyebrow={`Bonjour ${firstName}`}
-            title="ProtÃ©gez vos tÃ©lÃ©phones"
-            subtitle="Abonnez-vous pour signaler un vol en un clic et prouver que vos tÃ©lÃ©phones sont Ã  vous â€” 100 FCFA/mois."
+            title="Protégez vos téléphones"
+            subtitle="Abonnez-vous pour signaler un vol en un clic et prouver que vos téléphones sont à vous — 125 FCFA/mois."
           >
-            <Button title="Sâ€™abonner (100 FCFA/mois)" onPress={() => router.push('/subscribe')} />
+            <Button title="S’abonner (125 FCFA/mois)" onPress={() => router.push('/subscribe')} />
           </ProtectedHero>
         )}
 
         <View style={st.grid}>
-          <Tile title="Linker mon tÃ©lÃ©phone" sub="Enregistrer et protÃ©ger" icon="ðŸ”—" tone="green" onPress={() => router.push('/link')} />
-          <Tile title="VÃ©rifier un IMEI" sub="Avant un achat dâ€™occasion" icon="ðŸ”" tone="navy" onPress={() => router.push('/check')} />
-          <Tile title="TÃ©lÃ©phones volÃ©s" sub="Registre rÃ©seau gaRAN" icon="â›”" tone="blood" onPress={() => router.push('/stolen')} />
-          <Tile title="Pourquoi gaRAN ?" sub="SÃ©curitÃ©, avantages, abonnement" icon="ðŸ›¡ï¸" tone="white" onPress={() => router.push('/why')} />
-          <Tile title="Mon compte" sub="Profil et sÃ©curitÃ©" icon="ðŸ‘¤" tone="white" onPress={() => router.push('/account')} />
+          <Tile title="Linker mon téléphone" sub="Enregistrer et protéger" icon="🔗" tone="green" onPress={() => router.push('/link')} />
+          <Tile title="Vérifier un IMEI" sub="Avant un achat d’occasion" icon="🔍" tone="navy" onPress={() => router.push('/check')} />
+          <Tile title="Téléphones volés" sub="Registre réseau gaRAN" icon="⛔" tone="blood" onPress={() => router.push('/stolen')} />
+          <Tile title="Pourquoi gaRAN ?" sub="Sécurité, avantages, abonnement" icon="🛡️" tone="white" onPress={() => router.push('/why')} />
+          <Tile title="Mon compte" sub="Profil et sécurité" icon="👤" tone="white" onPress={() => router.push('/account')} />
         </View>
 
-        <Text style={st.section}>Mes tÃ©lÃ©phones</Text>
+        <Text style={st.section}>Mes téléphones</Text>
         {isLoading ? <Loading /> : null}
         {!isLoading && items.length === 0 ? (
-          <Banner tone="info" title="Aucun tÃ©lÃ©phone enregistrÃ©">
-            Appuyez sur Â« Linker mon tÃ©lÃ©phone Â» pour enregistrer votre premier appareil. En cas de vol, un tÃ©lÃ©phone liÃ© est beaucoup plus facile Ã  retrouver et impossible Ã  revendre proprement.
+          <Banner tone="info" title="Aucun téléphone enregistré">
+            Appuyez sur « Linker mon téléphone » pour enregistrer votre premier appareil. En cas de vol, un téléphone lié est beaucoup plus facile à retrouver et impossible à revendre proprement.
           </Banner>
         ) : null}
         {items.map((item) => <PhoneCard key={item.registration_id} item={item} />)}

@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
@@ -21,13 +21,13 @@ export default function ConsumerAccount() {
 
   const saveProfile = useMutation({
     mutationFn: () => api.patch('/consumer/me', { full_name: profile.full_name, email: profile.email || null, emergency_number: profile.emergency_number || null, emergency_name: profile.emergency_name || null }),
-    onSuccess: () => { reloadConsumer(); Alert.alert('EnregistrÃ©', 'Vos informations ont Ã©tÃ© mises Ã  jour.'); }
+    onSuccess: () => { reloadConsumer(); Alert.alert('Enregistré', 'Vos informations ont été mises à jour.'); }
   });
 
   const changePin = useMutation({
     mutationFn: () => api.post('/consumer/me/pin', { current_pin: pin.current_pin, new_pin: pin.new_pin }),
     onSuccess: async () => {
-      Alert.alert('Code PIN modifiÃ©', 'Reconnectez-vous avec votre nouveau code PIN.');
+      Alert.alert('Code PIN modifié', 'Reconnectez-vous avec votre nouveau code PIN.');
       await logout();
       router.replace('/welcome');
     }
@@ -37,9 +37,9 @@ export default function ConsumerAccount() {
   const pinReady = pin.current_pin.length === 4 && pin.new_pin.length === 4 && pin.new_pin === pin.confirm;
 
   async function confirmLogout() {
-    Alert.alert('DÃ©connexion', 'Voulez-vous vous dÃ©connecter ?', [
+    Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Se dÃ©connecter', style: 'destructive', onPress: async () => { await logout(); router.replace('/welcome'); } }
+      { text: 'Se déconnecter', style: 'destructive', onPress: async () => { await logout(); router.replace('/welcome'); } }
     ]);
   }
 
@@ -49,22 +49,22 @@ export default function ConsumerAccount() {
 
       <Card>
         <Muted>Identifiant de connexion</Muted>
-        <Row label="TÃ©lÃ©phone" value={consumer?.phone ?? 'â€”'} />
-        <Muted>Le numÃ©ro de tÃ©lÃ©phone sert dâ€™identifiant et ne peut pas Ãªtre modifiÃ©.</Muted>
+        <Row label="Téléphone" value={consumer?.phone ?? '—'} />
+        <Muted>Le numéro de téléphone sert d’identifiant et ne peut pas être modifié.</Muted>
       </Card>
 
       <Card>
         <Muted>Abonnement gaRAN</Muted>
-        <Row label="Statut" value={consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date() ? `Actif jusquâ€™au ${date(consumer.subscription_expires_at)}` : 'Non abonnÃ©'} />
-        <Button title="Sâ€™abonner / Renouveler (100 FCFA/mois)" onPress={() => router.push('/subscribe')} />
+        <Row label="Statut" value={consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date() ? `Actif jusqu’au ${date(consumer.subscription_expires_at)}` : 'Non abonné'} />
+        <Button title="S’abonner / Renouveler (125 FCFA/mois)" onPress={() => router.push('/subscribe')} />
       </Card>
 
       <Card>
         <Muted>Mes informations</Muted>
-        <Input label="Nom et prÃ©noms" value={profile.full_name} onChangeText={setP('full_name')} autoCapitalize="words" />
+        <Input label="Nom et prénoms" value={profile.full_name} onChangeText={setP('full_name')} autoCapitalize="words" />
         <Input label="Adresse e-mail (facultatif)" value={profile.email} onChangeText={setP('email')} keyboardType="email-address" autoCapitalize="none" />
-        <Muted>Contact de secours â€” prÃ©venu par SMS en cas de changement de carte SIM (vol probable).</Muted>
-        <Input label="NumÃ©ro de secours" value={profile.emergency_number} onChangeText={setP('emergency_number')} keyboardType="phone-pad" placeholder="Ex. 0700000000" />
+        <Muted>Contact de secours — prévenu par SMS en cas de changement de carte SIM (vol probable).</Muted>
+        <Input label="Numéro de secours" value={profile.emergency_number} onChangeText={setP('emergency_number')} keyboardType="phone-pad" placeholder="Ex. 0700000000" />
         <Input label="Nom du contact de secours (facultatif)" value={profile.emergency_name} onChangeText={setP('emergency_name')} autoCapitalize="words" />
         <ErrorBanner error={saveProfile.error} />
         <Button title="Enregistrer" onPress={() => saveProfile.mutate()} loading={saveProfile.isPending} disabled={!profile.full_name} />
@@ -79,8 +79,8 @@ export default function ConsumerAccount() {
         <Button title="Modifier le code PIN" variant="navy" onPress={() => changePin.mutate()} loading={changePin.isPending} disabled={!pinReady} />
       </Card>
 
-      <Banner tone="info">Ne communiquez jamais votre code PIN, mÃªme Ã  un agent gaRAN.</Banner>
-      <Button title="Se dÃ©connecter" variant="secondary" onPress={confirmLogout} />
+      <Banner tone="info">Ne communiquez jamais votre code PIN, même à un agent gaRAN.</Banner>
+      <Button title="Se déconnecter" variant="secondary" onPress={confirmLogout} />
     </Screen>
   );
 }

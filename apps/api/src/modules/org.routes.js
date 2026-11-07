@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db.js';
 import { AppError, badRequest, conflict, notFound } from '../lib/errors.js';
@@ -12,20 +12,20 @@ import { initiateSubscription, pollSubscription, subscriptionQuote } from './sub
 
 const zSubscribe = z.object({
   operator: z.enum(OPERATORS).optional(),
-  account_number: z.string().trim().regex(/^\d{8,15}$/, 'NumÃ©ro Mobile Money invalide').optional(),
+  account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide').optional(),
   months: z.coerce.number().int().min(1).max(12).default(1)
 });
 
 /**
  * Espace superviseur (compte principal) : gestion des magasins et des comptes agents.
- * Un grossiste crÃ©e plusieurs magasins et un compte (tÃ©lÃ©phone + PIN) par magasin.
+ * Un grossiste crée plusieurs magasins et un compte (téléphone + PIN) par magasin.
  */
 export const orgRouter = Router();
 orgRouter.use(requireUser, requireOwner);
 
 /* ------------------------------- Profil ------------------------------- */
 
-// Met Ã  jour le profil marchand (numÃ©ro de compte ORZAYAH pour l'encaissement et le solde)
+// Met à jour le profil marchand (numéro de compte ORZAYAH pour l'encaissement et le solde)
 orgRouter.patch(
   '/profile',
   validate({ body: z.object({ orzayah_number: z.string().trim().max(40).optional().nullable() }) }),
@@ -39,8 +39,8 @@ orgRouter.patch(
   }
 );
 
-// Relie le compte ORZAYAH du marchand : sa clÃ© API (service Â« DÃ©pÃ´t Â») sert Ã  crÃ©er les liens de paiement
-// de ses ventes, pour que l'argent arrive directement dans son portefeuille. StockÃ©e chiffrÃ©e, jamais renvoyÃ©e.
+// Relie le compte ORZAYAH du marchand : sa clé API (service « Dépôt ») sert à créer les liens de paiement
+// de ses ventes, pour que l'argent arrive directement dans son portefeuille. Stockée chiffrée, jamais renvoyée.
 orgRouter.patch(
   '/orzayah-key',
   validate({ body: z.object({ api_key: z.string().trim().min(16).max(200) }) }),
@@ -73,14 +73,14 @@ orgRouter.get('/subscription/plan', async (req, res) => {
   res.json({ ...q, price_fcfa: q.month_fcfa });
 });
 
-// Initie le paiement de l'abonnement par dÃ©pÃ´t Mobile Money (le marchand confirme sur son tÃ©lÃ©phone)
+// Initie le paiement de l'abonnement par dépôt Mobile Money (le marchand confirme sur son téléphone)
 orgRouter.post('/subscription/orzayah', validate({ body: zSubscribe }), async (req, res) => {
   const r = await initiateSubscription({ subjectType: 'organization', subjectId: req.auth.orgId, months: req.v.body.months, operator: req.v.body.operator, accountNumber: req.v.body.account_number });
   await audit(req, 'org.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
   res.status(201).json(r);
 });
 
-// Suit le statut du paiement ; au succÃ¨s l'abonnement est prolongÃ©
+// Suit le statut du paiement ; au succès l'abonnement est prolongé
 orgRouter.get('/subscription/orzayah/:id', validate({ params: z.object({ id: zUuid }) }), async (req, res) => {
   const r = await pollSubscription(req.v.params.id, { subjectType: 'organization', subjectId: req.auth.orgId });
   const org = (await query(`SELECT status, subscription_expires_at FROM organizations WHERE id = $1`, [req.auth.orgId])).rows[0];
@@ -179,7 +179,7 @@ orgRouter.post(
     const b = req.v.body;
     await assertOwnShop(b.shop_id, req.auth.orgId);
     const exists = await query(`SELECT 1 FROM users WHERE phone = $1`, [b.phone]);
-    if (exists.rowCount) throw conflict('PHONE_TAKEN', 'Ce numÃ©ro est dÃ©jÃ  utilisÃ© comme identifiant');
+    if (exists.rowCount) throw conflict('PHONE_TAKEN', 'Ce numéro est déjà utilisé comme identifiant');
     const { rows } = await query(
       `INSERT INTO users (organization_id, shop_id, role, full_name, phone, pin_hash)
        VALUES ($1, $2, 'agent', $3, $4, $5) RETURNING id`,
@@ -214,7 +214,7 @@ orgRouter.patch(
     ]);
     if (!target[0]) throw notFound('Utilisateur introuvable');
     if (target[0].role === 'owner' && (b.status || b.shop_id)) {
-      throw badRequest('OWNER_IMMUTABLE', 'Le compte principal ne peut pas Ãªtre dÃ©sactivÃ© ni dÃ©placÃ©');
+      throw badRequest('OWNER_IMMUTABLE', 'Le compte principal ne peut pas être désactivé ni déplacé');
     }
     if (b.shop_id) await assertOwnShop(b.shop_id, req.auth.orgId);
 
@@ -237,16 +237,16 @@ orgRouter.patch(
 
 /* ------------------- Supervision super marchand (mobile) ------------------- */
 
-/** VÃ©rifie que le compte principal connectÃ© est bien celui d'un super marchand. */
+/** Vérifie que le compte principal connecté est bien celui d'un super marchand. */
 async function requireSuperMerchant(req, res, next) {
   const { rows } = await query(`SELECT type FROM organizations WHERE id = $1`, [req.auth.orgId]);
   if (!rows[0] || rows[0].type !== 'super_merchant') {
-    throw new AppError(403, 'NOT_SUPER_MERCHANT', 'RÃ©servÃ© aux super marchands');
+    throw new AppError(403, 'NOT_SUPER_MERCHANT', 'Réservé aux super marchands');
   }
   next();
 }
 
-/** Tableau de bord consolidÃ© du super marchand : Ã©tats de tous ses sous-marchands. */
+/** Tableau de bord consolidé du super marchand : états de tous ses sous-marchands. */
 orgRouter.get('/overview', requireSuperMerchant, async (req, res) => {
   const { from, to } = req.query;
   const period = ['stock_in', 'sale', 'purchase'];
