@@ -17,7 +17,7 @@ export default function LinkPhone() {
   const [imei, setImei] = useState('');
   const [imei2, setImei2] = useState('');
   const [device, setDevice] = useState({ brand_id: undefined, model_id: undefined, model_label: undefined });
-  const [f, setF] = useState({ account_email: '', purchase_place: '', merchant_name: '', receipt_number: '', receipt_key: null, box_photo_key: null });
+  const [f, setF] = useState({ account_email: '', purchase_place: '', purchase_price: '', merchant_name: '', receipt_number: '', receipt_key: null, box_photo_key: null });
   const set = (k) => (v) => setF((p) => ({ ...p, [k]: v }));
 
   const check = useMutation({ mutationFn: () => api.get(`/consumer/devices/check/${imei}`) });
@@ -33,6 +33,7 @@ export default function LinkPhone() {
         model_label: r?.known ? undefined : device.model_label || undefined,
         account_email: f.account_email || undefined,
         purchase_place: f.purchase_place || undefined,
+        purchase_price: f.purchase_price ? Number(f.purchase_price) : undefined,
         merchant_name: f.merchant_name || undefined,
         receipt_number: f.receipt_number || undefined,
         receipt_key: f.receipt_key || undefined,
@@ -114,6 +115,7 @@ export default function LinkPhone() {
           <Card>
             <Muted>Preuve d’achat (recommandé)</Muted>
             <Input label="Lieu d’achat du téléphone" value={f.purchase_place} onChangeText={set('purchase_place')} placeholder="Ex. Marché d’Adjamé, Abidjan" />
+            <Input label="Prix d’achat (FCFA)" value={f.purchase_price} onChangeText={(t) => set('purchase_price')(t.replace(/\D/g, ''))} keyboardType="number-pad" placeholder="Ex. 85000" />
             <Input label="Nom du marchand" value={f.merchant_name} onChangeText={set('merchant_name')} placeholder="Nom de la boutique" />
             <Input label="Numéro du reçu d’achat" value={f.receipt_number} onChangeText={set('receipt_number')} />
             <View style={{ flexDirection: 'row', gap: 12 }}>

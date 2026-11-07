@@ -307,7 +307,7 @@ export async function purchase(req, shopId, body) {
  * l'appareil sous son compte et active sa 1re période gaRAN (mise en service + 1 mois).
  * Le marchand encaisse les frais (1 125 FCFA) ; l'activation est tracée dans orzayah_payments.
  */
-async function activateGaranForBuyer(c, { person, deviceId, txId, orgId, shopId, pin }) {
+async function activateGaranForBuyer(c, { person, deviceId, txId, orgId, shopId, pin, price }) {
   let consumer = (await c.query(`SELECT id FROM consumers WHERE phone = $1`, [person.phone1])).rows[0];
   const created = !consumer;
   if (!consumer) {
@@ -341,9 +341,9 @@ async function activateGaranForBuyer(c, { person, deviceId, txId, orgId, shopId,
     registrationId = existing.id;
   } else {
     const reg = (await c.query(
-      `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, merchant_name, receipt_number, account_email, setup_paid_at, subscription_expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, now(), now() + interval '1 month') RETURNING id`,
-      [deviceId, consumer.id, purchasePlace, org?.name ?? null, tx?.receipt_number ?? null, person.email ?? null]
+      `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, purchase_price, merchant_name, receipt_number, account_email, setup_paid_at, subscription_expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now() + interval '1 month') RETURNING id`,
+      [deviceId, consumer.id, purchasePlace, price ?? null, org?.name ?? null, tx?.receipt_number ?? null, person.email ?? null]
     )).rows[0];
     registrationId = reg.id;
   }
@@ -403,7 +403,7 @@ export async function sale(req, shopId, body) {
     }
     let garan = null;
     if (body.garan?.enabled) {
-      garan = await activateGaranForBuyer(c, { person: body.person, deviceId, txId: id, orgId: req.auth.orgId, shopId, pin: body.garan.pin });
+      garan = await activateGaranForBuyer(c, { person: body.person, deviceId, txId: id, orgId: req.auth.orgId, shopId, pin: body.garan.pin, price: body.price });
     }
     return { id, garan };
   });

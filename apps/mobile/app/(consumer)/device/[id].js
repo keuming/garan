@@ -9,7 +9,7 @@ import * as Sharing from 'expo-sharing';
 import { Banner, Button, Card, ErrorBanner, Loading, Muted, Row, Screen, Title } from '../../../src/components/ui';
 import { api } from '../../../src/lib/api';
 import { useAuth } from '../../../src/lib/auth';
-import { date } from '../../../src/lib/format';
+import { date, dateTime } from '../../../src/lib/format';
 import { colors } from '../../../src/lib/theme';
 import { certificateHtml, certifiedReceiptHtml } from '../../../src/lib/certificate';
 
@@ -76,7 +76,7 @@ export default function ConsumerDevice() {
       const verifyUrl = `${WEB_URL}/verifier?imei=${encodeURIComponent(item.imei1)}`;
       const qrSvg = await QRCode.toString(verifyUrl, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).catch(() => '');
       const owner = { full_name: consumer?.full_name, phone: consumer?.phone, email: consumer?.email };
-      const device = { ...item, acquired_at_fmt: date(item.acquired_at) };
+      const device = { ...item, acquired_at_fmt: date(item.acquired_at), acquired_at_dt: dateTime(item.acquired_at) };
       const html = kind === 'cert' ? certificateHtml({ owner, device, qrSvg }) : certifiedReceiptHtml({ owner, device, qrSvg });
       const title = kind === 'cert' ? 'Certificat de sécurité gaRAN' : 'Reçu d’achat certifié gaRAN';
       if (Platform.OS === 'web') {

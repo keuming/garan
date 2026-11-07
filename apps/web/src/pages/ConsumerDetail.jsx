@@ -12,7 +12,7 @@ import { date, dateTime } from '../format.js';
 async function generateDoc(kind, owner, device) {
   const verifyUrl = `${window.location.origin}/verifier?imei=${encodeURIComponent(device.imei1)}`;
   const qrSvg = await QRCode.toString(verifyUrl, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).catch(() => '');
-  const dev = { ...device, acquired_at_fmt: date(device.acquired_at) };
+  const dev = { ...device, acquired_at_fmt: date(device.acquired_at), acquired_at_dt: dateTime(device.acquired_at) };
   const html = kind === 'cert' ? certificateHtml({ owner, device: dev, qrSvg }) : certifiedReceiptHtml({ owner, device: dev, qrSvg });
   const w = window.open('', '_blank');
   if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 400); }

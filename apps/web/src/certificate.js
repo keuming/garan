@@ -74,7 +74,7 @@ export function certificateHtml({ owner, device, qrSvg }) {
 /** Reçu d'achat certifié : toutes les informations fournies au linkage. */
 export function certifiedReceiptHtml({ owner, device, qrSvg }) {
   const rows = [
-    ['Titulaire', owner.full_name],
+    ['Acquéreur', owner.full_name],
     ['Téléphone', owner.phone],
     ...(owner.email ? [['E-mail du compte gaRAN', owner.email]] : []),
     ['E-mail du compte sur l’appareil', device.account_email || '—'],
@@ -84,7 +84,8 @@ export function certifiedReceiptHtml({ owner, device, qrSvg }) {
     ...(device.purchase_place ? [['Lieu d’achat', device.purchase_place]] : []),
     ...(device.merchant_name ? [['Marchand', device.merchant_name]] : []),
     ...(device.receipt_number ? [['N° de reçu d’achat', device.receipt_number]] : []),
-    ['Enregistré le', device.acquired_at_fmt || '—']
+    ...(device.purchase_price != null && device.purchase_price !== '' ? [['Prix d’achat', `${new Intl.NumberFormat('fr-FR').format(device.purchase_price)} FCFA`]] : []),
+    ['Date et heure d’achat', device.acquired_at_dt || device.acquired_at_fmt || '—']
   ];
   return shell(
     'Reçu d’achat — certifié gaRAN',

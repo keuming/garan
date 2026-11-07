@@ -381,7 +381,7 @@ consumerRouter.get(
 consumerRouter.get('/devices', requireConsumer, async (req, res) => {
   const { rows } = await query(
     `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
-            r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email, r.subscription_expires_at, r.setup_paid_at,
+            r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email, r.subscription_expires_at, r.setup_paid_at, r.purchase_price,
             d.id AS device_id, d.imei1, d.imei2, d.status AS device_status, d.color, d.storage_gb,
             COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
      FROM device_registrations r
@@ -406,6 +406,7 @@ consumerRouter.post(
       model_id: z.coerce.number().int().positive().optional().nullable(),
       model_label: z.string().trim().max(80).optional().nullable(),
       purchase_place: z.string().trim().max(160).optional().nullable(),
+      purchase_price: z.coerce.number().int().min(0).max(100000000).optional().nullable(),
       merchant_name: z.string().trim().max(120).optional().nullable(),
       receipt_number: z.string().trim().max(60).optional().nullable(),
       receipt_key: z.string().max(200).optional().nullable(),
@@ -449,9 +450,9 @@ consumerRouter.post(
         );
       }
       const reg = await c.query(
-        `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, merchant_name, receipt_number, receipt_key, box_photo_key, account_email)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [device.id, req.auth.sub, b.purchase_place ?? null, b.merchant_name ?? null, b.receipt_number ?? null, b.receipt_key ?? null, b.box_photo_key ?? null, b.account_email ?? null]
+        `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, purchase_price, merchant_name, receipt_number, receipt_key, box_photo_key, account_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+        [device.id, req.auth.sub, b.purchase_place ?? null, b.purchase_price ?? null, b.merchant_name ?? null, b.receipt_number ?? null, b.receipt_key ?? null, b.box_photo_key ?? null, b.account_email ?? null]
       );
       return reg.rows[0].id;
     });
