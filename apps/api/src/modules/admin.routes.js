@@ -10,6 +10,7 @@ import { validate, zEmail, zImei, zPagination, zText, zUuid } from '../lib/valid
 import { requireAdmin } from '../middleware/auth.js';
 import { getBalance, orzayahEnabled } from '../lib/orzayah.js';
 import { ensureBlockRequest, blockRequestText } from './block-request.service.js';
+import { listBusinessDevelopers, businessDeveloperDetail, decideBusinessDeveloper, recordPayout } from './bd.service.js';
 
 /**
  * Back-office du promoteur gaRAN.
@@ -114,6 +115,7 @@ adminRouter.get('/dashboard', requireAdmin(...ALL), async (_req, res) => {
       (SELECT COALESCE(sum(price), 0) FROM transactions WHERE type = 'sale' AND occurred_at >= now() - interval '30 days') AS sales_amount_30d,
       (SELECT count(*)::int FROM theft_reports WHERE status = 'pending') AS theft_reports_pending,
       (SELECT count(*)::int FROM security_alerts WHERE status = 'open') AS alerts_open,
+      (SELECT count(*)::int FROM business_developers WHERE status = 'pending') AS bd_requests_pending,
       (SELECT COALESCE(sum(amount), 0) FROM subscription_payments WHERE paid_at >= date_trunc('month', now())) AS revenue_month
   `);
   const daily = await query(`
@@ -1107,5 +1109,51 @@ adminRouter.delete(
     await query(`DELETE FROM admins WHERE id = $1`, [id]);
     await audit(req, 'admin.admin_deleted', { entity: 'admin', entityId: id });
     res.status(204).end();
+  }
+);
+
+/* ------------------- Business Développeurs (parrainage) ------------------- */
+
+// Liste des BD (filtrable par statut) avec le détail des gains.
+adminRouter.get(
+  '/business-developers',
+  requireAdmin(...STAFF),
+  validate({ query: z.object({ status: z.enum(['pending', 'active', 'suspended', 'rejected']).optional() }) }),
+  async (req, res) => {
+    res.json({ items: await listBusinessDevelopers(req.v.query.status ?? null) });
+  }
+);
+
+// Détail d'un BD : filleuls, commissions, reversements.
+adminRouter.get(
+  '/business-developers/:id',
+  requireAdmin(...STAFF),
+  validate({ params: z.object({ id: zUuid }) }),
+  async (req, res) => {
+    res.json(await businessDeveloperDetail(req.v.params.id));
+  }
+);
+
+// Valider / refuser / suspendre / réactiver une demande BD.
+adminRouter.post(
+  '/business-developers/:id/decide',
+  requireAdmin(...STAFF),
+  validate({ params: z.object({ id: zUuid }), body: z.object({ action: z.enum(['approve', 'reject', 'suspend', 'reactivate']) }) }),
+  async (req, res) => {
+    const r = await decideBusinessDeveloper(req.v.params.id, req.v.body.action, req.admin?.id);
+    await audit(req, 'admin.bd_decided', { entity: 'business_developer', entityId: req.v.params.id, meta: { action: req.v.body.action } });
+    res.json(r);
+  }
+);
+
+// Reverser le dû à un BD (solde toutes les commissions non encore reversées).
+adminRouter.post(
+  '/business-developers/:id/payout',
+  requireAdmin(...STAFF),
+  validate({ params: z.object({ id: zUuid }), body: z.object({ method: z.string().trim().max(40).optional(), reference: z.string().trim().max(80).optional(), note: z.string().trim().max(200).optional() }) }),
+  async (req, res) => {
+    const r = await recordPayout(req.v.params.id, req.v.body, req.admin?.id);
+    await audit(req, 'admin.bd_payout', { entity: 'business_developer', entityId: req.v.params.id, meta: { amount_fcfa: r.amount_fcfa } });
+    res.status(201).json(r);
   }
 );

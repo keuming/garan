@@ -20,6 +20,7 @@ export function Layout() {
     { to: '/blocages', label: 'Demandes de blocage', show: can('superadmin', 'admin', 'police') },
     { to: '/alertes', label: 'Alertes', count: dash?.alerts_open, show: can('superadmin', 'admin', 'police') },
     { to: '/paiements', label: 'Abonnements & paiements', show: can('superadmin', 'admin') },
+    { to: '/business-developpeurs', label: 'Business Développeurs', count: dash?.bd_requests_pending, show: can('superadmin', 'admin') },
     { to: '/catalogue', label: 'Marques & modèles', show: true },
     { to: '/administrateurs', label: 'Administrateurs', show: can('superadmin') },
     { to: '/journal', label: 'Journal d’audit', show: can('superadmin') }

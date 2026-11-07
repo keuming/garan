@@ -22,6 +22,7 @@ import { PublicCheck } from './pages/PublicCheck.jsx';
 import { PublicStolen } from './pages/PublicStolen.jsx';
 import { PublicShop } from './pages/PublicShop.jsx';
 import { RegistreVoles } from './pages/RegistreVoles.jsx';
+import { BusinessDevelopers } from './pages/BusinessDevelopers.jsx';
 
 const READERS = ['superadmin', 'admin', 'support'];
 const INVESTIGATORS = ['superadmin', 'admin', 'police'];
@@ -50,6 +51,7 @@ export function App() {
         <Route index element={<Dashboard />} />
         <Route path="profil" element={<Profile />} />
         <Route path="paiements" element={<Protected roles={['superadmin', 'admin']}><Payments /></Protected>} />
+        <Route path="business-developpeurs" element={<Protected roles={['superadmin', 'admin']}><BusinessDevelopers /></Protected>} />
         <Route path="organisations" element={<Protected roles={READERS}><Organizations /></Protected>} />
         <Route path="organisations/:id" element={<Protected roles={READERS}><OrganizationDetail /></Protected>} />
         <Route path="imei" element={<Protected roles={INVESTIGATORS}><ImeiSearch /></Protected>} />
