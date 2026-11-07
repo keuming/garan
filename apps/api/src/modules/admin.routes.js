@@ -605,7 +605,7 @@ adminRouter.get(
     const [devices, connections, simEvents] = await Promise.all([
       query(
         `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
-                r.receipt_number, r.receipt_key, r.box_photo_key,
+                r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email,
                 d.imei1, d.imei2, d.status AS device_status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
          FROM device_registrations r JOIN devices d ON d.id = r.device_id
          LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id

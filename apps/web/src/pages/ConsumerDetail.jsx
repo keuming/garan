@@ -1,10 +1,22 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
+import QRCode from 'qrcode';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { Badge, ErrorBox } from '../components/ui.jsx';
+import { certificateHtml, certifiedReceiptHtml } from '../certificate.js';
 import { date, dateTime } from '../format.js';
+
+/** Génère un document certifié gaRAN (certificat ou reçu) et ouvre la fenêtre d'impression / PDF. */
+async function generateDoc(kind, owner, device) {
+  const verifyUrl = `${window.location.origin}/verifier?imei=${encodeURIComponent(device.imei1)}`;
+  const qrSvg = await QRCode.toString(verifyUrl, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).catch(() => '');
+  const dev = { ...device, acquired_at_fmt: date(device.acquired_at) };
+  const html = kind === 'cert' ? certificateHtml({ owner, device: dev, qrSvg }) : certifiedReceiptHtml({ owner, device: dev, qrSvg });
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); w.focus(); setTimeout(() => w.print(), 400); }
+}
 
 /** Ouvre une pièce jointe (reçu, photo du carton) via l'API authentifiée. */
 function DocButton({ docKey, label }) {
@@ -84,13 +96,20 @@ export function ConsumerDetail() {
                   </div>
                 </div>
                 <dl className="dl">
+                  <dt>E-mail de l’appareil</dt><dd>{d.account_email || '—'}</dd>
                   <dt>Lieu d’achat</dt><dd>{d.purchase_place || '—'}</dd>
                   <dt>Marchand déclaré</dt><dd>{d.merchant_name || '—'}</dd>
                   <dt>N° de reçu</dt><dd>{d.receipt_number || '—'}</dd>
                 </dl>
-                <div className="actions" style={{ justifyContent: 'flex-start', marginTop: 8 }}>
+                <div className="actions" style={{ justifyContent: 'flex-start', marginTop: 8, flexWrap: 'wrap' }}>
                   <DocButton docKey={d.receipt_key} label="Reçu" />
                   <DocButton docKey={d.box_photo_key} label="Photo du carton" />
+                  <button className="btn small" type="button" onClick={() => generateDoc('cert', { full_name: c.full_name, phone: c.phone, email: c.email }, d)}>
+                    Certificat gaRAN
+                  </button>
+                  <button className="btn secondary small" type="button" onClick={() => generateDoc('receipt', { full_name: c.full_name, phone: c.phone, email: c.email }, d)}>
+                    Reçu certifié
+                  </button>
                 </div>
               </div>
             ))}
