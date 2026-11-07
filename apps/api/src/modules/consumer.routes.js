@@ -56,6 +56,7 @@ async function notifyEmailChange({ oldEmail, newEmail, name }) {
 }
 import { initiateDeviceSubscription, deviceQuote, pollSubscription, syncSubscriptions } from './subscription.service.js';
 import { resolvePromoCode, bdSummary, requestBecomeBD } from './bd.service.js';
+import { imeiGaranLookup } from './imei-lookup.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { verifyAccessToken } from '../lib/security.js';
@@ -594,5 +595,17 @@ consumerRouter.get(
     const d = rows[0];
     const result = !d ? 'unknown' : REPORTED.has(d.status) ? 'reported' : 'clean';
     res.json({ imei: maskImei(req.v.params.imei), result, brand: d?.brand ?? null, model: d?.model ?? null });
+  }
+);
+
+/** Recherche IMEI détaillée (usager connecté) : acquéreur complet + statut certifié. */
+consumerRouter.get(
+  '/imei/:imei',
+  requireConsumer,
+  validate({ params: z.object({ imei: zImei }) }),
+  async (req, res) => {
+    const r = await imeiGaranLookup(req.v.params.imei);
+    await audit(req, 'consumer.imei_lookup', { entity: 'device', entityId: null, meta: { imei: req.v.params.imei, status: r.status } });
+    res.json(r);
   }
 );

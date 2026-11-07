@@ -7,6 +7,7 @@ import { query, withTransaction } from '../db.js';
 import { badRequest } from '../lib/errors.js';
 import { storage } from '../lib/storage.js';
 import { audit } from '../lib/audit.js';
+import { imeiGaranLookup } from './imei-lookup.service.js';
 import {
   validate,
   zDateRange,
@@ -75,7 +76,8 @@ registryRouter.get(
   requireActiveSubscription,
   validate({ params: z.object({ imei: zImei }) }),
   async (req, res) => {
-    res.json(await checkDevice(req.v.params.imei, req.auth));
+    const base = await checkDevice(req.v.params.imei, req.auth);
+    res.json({ ...base, garan: await imeiGaranLookup(req.v.params.imei) });
   }
 );
 
