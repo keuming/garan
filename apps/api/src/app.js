@@ -23,7 +23,21 @@ export function createApp() {
   app.set('trust proxy', config.TRUST_PROXY);
 
   app.use(helmet());
-  app.use(cors({ origin: config.corsOrigins, maxAge: 600 }));
+  // Origines web gaRAN toujours autorisées (PWA, back-office, previews Vercel),
+  // en plus de la liste CORS_ORIGINS. L'API utilise des jetons Bearer (pas de cookies).
+  const GARAN_WEB_ORIGINS = [/^https:\/\/([a-z0-9-]+\.)?garan\.solutions$/i, /^https:\/\/[a-z0-9-]+\.vercel\.app$/i];
+  app.use(
+    cors({
+      origin(origin, cb) {
+        if (!origin) return cb(null, true); // apps natives, curl, same-origin
+        if (config.corsOrigins === '*') return cb(null, true);
+        if (Array.isArray(config.corsOrigins) && config.corsOrigins.includes(origin)) return cb(null, true);
+        if (GARAN_WEB_ORIGINS.some((re) => re.test(origin))) return cb(null, true);
+        return cb(null, false);
+      },
+      maxAge: 600
+    })
+  );
   app.use(express.json({ limit: '200kb' }));
   app.use(
     pinoHttp({
