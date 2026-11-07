@@ -19,7 +19,9 @@ import { Consumers } from './pages/Consumers.jsx';
 import { ConsumerDetail } from './pages/ConsumerDetail.jsx';
 import { PublicCertificate } from './pages/PublicCertificate.jsx';
 import { PublicCheck } from './pages/PublicCheck.jsx';
+import { PublicStolen } from './pages/PublicStolen.jsx';
 import { PublicShop } from './pages/PublicShop.jsx';
+import { RegistreVoles } from './pages/RegistreVoles.jsx';
 
 const READERS = ['superadmin', 'admin', 'support'];
 const INVESTIGATORS = ['superadmin', 'admin', 'police'];
@@ -39,6 +41,7 @@ export function App() {
       {/* Pages publiques */}
       <Route path="/v/:code" element={<PublicCertificate />} />
       <Route path="/verifier" element={<PublicCheck />} />
+      <Route path="/voles" element={<PublicStolen />} />
       <Route path="/boutique/:shopId" element={<PublicShop />} />
       <Route path="/login" element={<Login />} />
 
@@ -55,6 +58,7 @@ export function App() {
         <Route path="usagers" element={<Protected roles={INVESTIGATORS}><Consumers /></Protected>} />
         <Route path="usagers/:id" element={<Protected roles={INVESTIGATORS}><ConsumerDetail /></Protected>} />
         <Route path="declarations" element={<TheftReports />} />
+        <Route path="registre-voles" element={<Protected roles={INVESTIGATORS}><RegistreVoles /></Protected>} />
         <Route path="blocages" element={<Protected roles={INVESTIGATORS}><BlockRequests /></Protected>} />
         <Route path="alertes" element={<Protected roles={INVESTIGATORS}><Alerts /></Protected>} />
         <Route path="catalogue" element={<Catalog />} />

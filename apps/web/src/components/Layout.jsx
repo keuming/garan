@@ -16,6 +16,7 @@ export function Layout() {
     { to: '/ventes', label: 'Téléphones vendus', show: can('superadmin', 'admin', 'police') },
     { to: '/usagers', label: 'Usagers', show: can('superadmin', 'admin', 'police') },
     { to: '/declarations', label: 'Déclarations de vol', count: dash?.theft_reports_pending, show: true },
+    { to: '/registre-voles', label: 'Registre des volés', show: can('superadmin', 'admin', 'police') },
     { to: '/blocages', label: 'Demandes de blocage', show: can('superadmin', 'admin', 'police') },
     { to: '/alertes', label: 'Alertes', count: dash?.alerts_open, show: can('superadmin', 'admin', 'police') },
     { to: '/paiements', label: 'Abonnements & paiements', show: can('superadmin', 'admin') },

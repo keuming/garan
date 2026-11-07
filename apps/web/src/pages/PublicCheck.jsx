@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { ErrorBox, Field, Wordmark } from '../components/ui.jsx';
@@ -43,6 +44,9 @@ export function PublicCheck() {
           <input id="imei" className="input mono" inputMode="numeric" maxLength={20} required value={imei} onChange={(e) => setImei(e.target.value)} />
         </Field>
         <button className="btn" type="submit" disabled={check.isPending}>Vérifier</button>
+        <div className="muted small" style={{ textAlign: 'center' }}>
+          ou <Link to="/voles">consultez la liste des téléphones déclarés volés</Link>
+        </div>
         <ErrorBox error={check.error} />
         {check.data ? (
           <div className={`verdict ${verdictTone[check.data.result]}`}>
