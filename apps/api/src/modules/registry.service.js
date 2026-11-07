@@ -1,10 +1,11 @@
 import { config } from '../config.js';
 import { query, withTransaction } from '../db.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
-import { randomCode } from '../lib/security.js';
+import { randomCode, hashSecret } from '../lib/security.js';
 import { audit } from '../lib/audit.js';
 import { logger } from '../logger.js';
 import { salePaymentView } from './sale-payment.service.js';
+import { SETUP_FCFA, PLAN_FCFA } from './subscription.service.js';
 
 /* =====================================================================
  * Cœur métier du registre : entrée en stock, rachat, vente.
@@ -301,10 +302,67 @@ export async function purchase(req, shopId, body) {
   return txId;
 }
 
+/**
+ * Option B : à la vente, crée (ou retrouve) le compte usager de l'acheteur, enregistre
+ * l'appareil sous son compte et active sa 1re période gaRAN (mise en service + 1 mois).
+ * Le marchand encaisse les frais (1 125 FCFA) ; l'activation est tracée dans orzayah_payments.
+ */
+async function activateGaranForBuyer(c, { person, deviceId, txId, orgId, shopId, pin }) {
+  let consumer = (await c.query(`SELECT id FROM consumers WHERE phone = $1`, [person.phone1])).rows[0];
+  const created = !consumer;
+  if (!consumer) {
+    if (!pin || !/^\d{4}$/.test(pin)) {
+      throw badRequest('GARAN_PIN_REQUIRED', "Saisissez le code PIN gaRAN (4 chiffres) choisi par l'acheteur : il n'a pas encore de compte gaRAN.");
+    }
+    consumer = (await c.query(
+      `INSERT INTO consumers (full_name, phone, email, pin_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [person.full_name, person.phone1, person.email ?? null, await hashSecret(pin)]
+    )).rows[0];
+  }
+  const org = (await c.query(`SELECT name FROM organizations WHERE id = $1`, [orgId])).rows[0];
+  const shop = (await c.query(`SELECT name, city FROM shops WHERE id = $1`, [shopId])).rows[0];
+  const tx = (await c.query(`SELECT receipt_number FROM transactions WHERE id = $1`, [txId])).rows[0];
+  const purchasePlace = [shop?.name, shop?.city].filter(Boolean).join(' · ') || null;
+
+  // Un seul enregistrement actif par appareil.
+  const existing = (await c.query(`SELECT id, consumer_id FROM device_registrations WHERE device_id = $1 AND status = 'active'`, [deviceId])).rows[0];
+  let registrationId;
+  if (existing) {
+    if (existing.consumer_id !== consumer.id) {
+      throw conflict('DEVICE_ALREADY_LINKED', 'Cet appareil est déjà lié au compte gaRAN d’un autre usager.');
+    }
+    await c.query(
+      `UPDATE device_registrations
+       SET subscription_expires_at = GREATEST(now(), COALESCE(subscription_expires_at, now())) + interval '1 month',
+           setup_paid_at = COALESCE(setup_paid_at, now())
+       WHERE id = $1`,
+      [existing.id]
+    );
+    registrationId = existing.id;
+  } else {
+    const reg = (await c.query(
+      `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, merchant_name, receipt_number, account_email, setup_paid_at, subscription_expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now(), now() + interval '1 month') RETURNING id`,
+      [deviceId, consumer.id, purchasePlace, org?.name ?? null, tx?.receipt_number ?? null, person.email ?? null]
+    )).rows[0];
+    registrationId = reg.id;
+  }
+
+  // Trace de l'encaissement des frais gaRAN par le marchand (mise en service + 1er mois).
+  await c.query(
+    `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, device_registration_id, amount, months, operator, status, applied, transaction_id)
+     VALUES ($1, 'subscription_consumer', 'consumer', $2, $3, $4, 1, 'SALE', 'SUCCESS', true, $5)
+     ON CONFLICT (idempotency_key) DO NOTHING`,
+    [`garan-sale-${txId}`, consumer.id, registrationId, (SETUP_FCFA.consumer + PLAN_FCFA.consumer) * 100, txId]
+  );
+
+  return { consumer_id: consumer.id, registration_id: registrationId, account_created: created, phone: person.phone1 };
+}
+
 /** Vente à un particulier : le téléphone passe au nom de l'acheteur. */
 export async function sale(req, shopId, body) {
   const ctx = { imei: body.device.imei1, shopId, userId: req.auth.sub, details: { op: 'sale' } };
-  const txId = await withTransaction(async (c) => {
+  const result = await withTransaction(async (c) => {
     const device = await findDeviceByImei(c, body.device.imei1, { lock: true });
     assertNotReported(device, ctx);
     const own = ownershipFor(device, req.auth);
@@ -343,10 +401,15 @@ export async function sale(req, shopId, body) {
         [body.listing_id, shopId, req.auth.orgId]
       );
     }
-    return id;
+    let garan = null;
+    if (body.garan?.enabled) {
+      garan = await activateGaranForBuyer(c, { person: body.person, deviceId, txId: id, orgId: req.auth.orgId, shopId, pin: body.garan.pin });
+    }
+    return { id, garan };
   });
-  await audit(req, 'transaction.sale', { entity: 'transaction', entityId: txId });
-  return txId;
+  await audit(req, 'transaction.sale', { entity: 'transaction', entityId: result.id });
+  if (result.garan) await audit(req, 'transaction.garan_activated', { entity: 'device_registration', entityId: result.garan.registration_id, meta: { account_created: result.garan.account_created } });
+  return result;
 }
 
 /* --------------------------------------------------------------------- */

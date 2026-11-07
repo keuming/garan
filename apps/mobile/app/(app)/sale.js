@@ -69,6 +69,8 @@ export default function Sale() {
   const [condition, setCondition] = useState('new');
   const [price, setPrice] = useState('');
   const [payment, setPayment] = useState('cash');
+  const [garanOn, setGaranOn] = useState(false);
+  const [garanPin, setGaranPin] = useState('');
 
   function pickListing(l) {
     if (listing?.id === l.id) { setListing(null); return; }
@@ -88,7 +90,8 @@ export default function Sale() {
   const step2Ok = docReady && person.full_name.trim() && person.phone1 && person.phone2 && photosOk;
 
   const shopOk = shopId || !isOwner || activeShops.length === 1;
-  const step3Ok = price !== '' && shopOk;
+  const garanOk = !garanOn || garanPin === '' || /^\d{4}$/.test(garanPin);
+  const step3Ok = price !== '' && shopOk && garanOk;
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -103,7 +106,8 @@ export default function Sale() {
         condition,
         price: Number(price || 0),
         payment_method: payment,
-        listing_id: listing?.id
+        listing_id: listing?.id,
+        garan: garanOn ? { enabled: true, pin: garanPin || undefined } : undefined
       };
       const tx = await api.post('/transactions/sales', body);
       return tx;
@@ -112,7 +116,18 @@ export default function Sale() {
       qc.invalidateQueries({ queryKey: ['stats'] });
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['org', 'listings'] });
-      router.replace(`/receipt/${tx.id}`);
+      const go = () => router.replace(`/receipt/${tx.id}`);
+      if (tx.garan) {
+        Alert.alert(
+          'gaRAN activé pour l’acheteur',
+          tx.garan.account_created
+            ? `Compte gaRAN créé pour ${tx.garan.phone}. L’acheteur se connecte à l’app gaRAN avec son numéro et le PIN choisi — téléphone protégé et abonné 1 mois.`
+            : `Appareil ajouté au compte gaRAN de ${tx.garan.phone}, abonné 1 mois de plus.`,
+          [{ text: 'OK', onPress: go }]
+        );
+      } else {
+        go();
+      }
     }
   });
 
@@ -229,6 +244,30 @@ export default function Sale() {
             {!linked ? <Muted>Pour encaisser par ORZAYAH, reliez d’abord votre compte dans Mon compte.</Muted> : null}
             {payment === 'orzayah' ? (
               <Muted>Après validation, le reçu affiche un lien et un QR de paiement ORZAYAH à faire régler par l’acheteur. La vente passe en « payée » dès la confirmation.</Muted>
+            ) : null}
+          </Card>
+
+          <Card>
+            <Muted>Protection gaRAN de l’acheteur</Muted>
+            <Segmented
+              value={garanOn ? 'oui' : 'non'}
+              onChange={(v) => setGaranOn(v === 'oui')}
+              options={[{ value: 'non', label: 'Non' }, { value: 'oui', label: `Activer (${fcfa(1125)})` }]}
+            />
+            {garanOn ? (
+              <>
+                <Muted style={{ marginTop: 6 }}>
+                  L’acheteur reçoit un compte gaRAN : téléphone protégé, déclaration de vol et certificat. Frais encaissés : {fcfa(1125)} (mise en service 1 000 + 1er mois 125).
+                </Muted>
+                <Input
+                  label="Code PIN gaRAN de l’acheteur (4 chiffres)"
+                  value={garanPin}
+                  onChangeText={(t) => setGaranPin(t.replace(/\D/g, '').slice(0, 4))}
+                  keyboardType="number-pad"
+                  placeholder="Choisi par l’acheteur"
+                />
+                <Muted>S’il a déjà un compte gaRAN avec ce numéro, laissez vide.</Muted>
+              </>
             ) : null}
           </Card>
 

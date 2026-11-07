@@ -174,7 +174,9 @@ registryRouter.post(
       price: zMoney,
       payment_method: z.enum(['cash', 'orzayah']).default('cash'),
       listing_id: zUuid.optional().nullable(),
-      notes: zNotes
+      notes: zNotes,
+      // Option B : activer gaRAN pour l'acheteur (compte usager + appareil + 1re période).
+      garan: z.object({ enabled: z.boolean().default(false), pin: z.string().regex(/^\d{4}$/, 'PIN à 4 chiffres').optional() }).optional()
     })
   }),
   async (req, res) => {
@@ -185,8 +187,8 @@ registryRouter.post(
         throw badRequest('ORZAYAH_NOT_LINKED', 'Reliez d’abord votre compte ORZAYAH (Mon compte) pour encaisser par ORZAYAH.');
       }
     }
-    const id = await sale(req, shopId, req.v.body);
-    res.status(201).json(await getTransaction(id, { orgId: req.auth.orgId }));
+    const r = await sale(req, shopId, req.v.body);
+    res.status(201).json({ ...(await getTransaction(r.id, { orgId: req.auth.orgId })), garan: r.garan ?? null });
   }
 );
 
