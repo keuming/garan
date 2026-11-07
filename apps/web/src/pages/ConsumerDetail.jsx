@@ -100,6 +100,7 @@ export function ConsumerDetail() {
                   <dt>Lieu d’achat</dt><dd>{d.purchase_place || '—'}</dd>
                   <dt>Marchand déclaré</dt><dd>{d.merchant_name || '—'}</dd>
                   <dt>N° de reçu</dt><dd>{d.receipt_number || '—'}</dd>
+                  <dt>Abonnement</dt><dd>{d.subscription_expires_at && new Date(d.subscription_expires_at) > new Date() ? `Actif jusqu’au ${date(d.subscription_expires_at)}` : 'À activer'}</dd>
                 </dl>
                 <div className="actions" style={{ justifyContent: 'flex-start', marginTop: 8, flexWrap: 'wrap' }}>
                   <DocButton docKey={d.receipt_key} label="Reçu" />

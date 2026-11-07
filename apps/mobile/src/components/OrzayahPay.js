@@ -20,7 +20,7 @@ const OPERATORS = [
  * `onPoll(payment_id)` renvoie l'état ; on sonde jusqu'à un statut final.
  * `onSuccess(result)` est appelé une fois le paiement confirmé.
  */
-export function OrzayahPay({ title, sub, amountLabel, onStart, onPoll, onSuccess, mode = 'link' }) {
+export function OrzayahPay({ title, sub, amountLabel, onStart, onPoll, onSuccess, mode = 'link', headerExtra = null }) {
   const [operator, setOperator] = useState('ORANGE');
   const [number, setNumber] = useState('');
   const [phase, setPhase] = useState('form'); // form | pending | done | failed
@@ -101,6 +101,8 @@ export function OrzayahPay({ title, sub, amountLabel, onStart, onPoll, onSuccess
         <Text style={{ color: '#042f1f', fontWeight: '800', fontSize: 13, textTransform: 'uppercase' }}>Montant</Text>
         <Text style={{ color: '#042a1c', fontSize: 30, fontWeight: '900' }}>{amountLabel}</Text>
       </Card>
+
+      {headerExtra && (phase === 'form' || phase === 'failed') ? headerExtra : null}
 
       {phase === 'form' || phase === 'failed' ? (
         <Card>

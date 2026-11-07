@@ -4,14 +4,108 @@ import { notFound } from '../lib/errors.js';
 import { createPaymentLink, getPaymentLink, getOperation, opStatus } from '../lib/orzayah.js';
 import { logger } from '../logger.js';
 
-/* Tarifs d'abonnement en FCFA. PLAN_FCFA = abonnement mensuel ; SETUP_FCFA = mise en service
-   (activation du compte + propagation sur le réseau), facturée une seule fois à la 1re souscription.
-   1re souscription : mise en service + 1 mois (usager 1000 + 125 = 1125 ; marchand 10000 + 1000 = 11000).
-   Renouvellements : mensuel uniquement. */
+/* Tarifs en FCFA. PLAN_FCFA = abonnement mensuel ; SETUP_FCFA = mise en service
+   (sécurisation + propagation sur le réseau), facturée une seule fois.
+   La sécurisation concerne CHAQUE APPAREIL : pour un usager, chaque appareil paie sa propre
+   mise en service (1000) + 125/mois. Pour un marchand, c'est l'abonnement plateforme du
+   compte (back-office) : 10000 + 1000/mois. */
 export const PLAN_FCFA = { organization: 1000, consumer: 125 };
 export const SETUP_FCFA = { organization: 10000, consumer: 1000 };
 
-/** Devis d'abonnement pour un sujet : applique la mise en service si c'est sa 1re souscription. */
+/* ------------------------------------------------------------------------- */
+/* Abonnement PAR APPAREIL (usager)                                            */
+/* ------------------------------------------------------------------------- */
+
+/** Devis d'abonnement d'un appareil : mise en service si c'est sa 1re souscription + N mois. */
+export async function deviceQuote({ registrationId, consumerId = null, months = 1 }) {
+  const params = [registrationId];
+  let ownerClause = '';
+  if (consumerId) { params.push(consumerId); ownerClause = ' AND r.consumer_id = $2'; }
+  const { rows } = await query(
+    `SELECT r.id, r.consumer_id, r.status, r.setup_paid_at, r.subscription_expires_at,
+            d.imei1, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
+     FROM device_registrations r
+     JOIN devices d ON d.id = r.device_id
+     LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+     WHERE r.id = $1${ownerClause}`,
+    params
+  );
+  const r = rows[0];
+  if (!r) throw notFound('Appareil introuvable');
+  const isFirst = !r.setup_paid_at;
+  const monthFcfa = PLAN_FCFA.consumer;
+  const setupFcfa = isFirst ? SETUP_FCFA.consumer : 0;
+  const amountDueFcfa = setupFcfa + monthFcfa * months;
+  return {
+    registration_id: r.id,
+    month_fcfa: monthFcfa,
+    setup_fcfa: SETUP_FCFA.consumer,
+    is_first: isFirst,
+    months,
+    amount_due_fcfa: amountDueFcfa,
+    currency: 'XOF',
+    period: 'month',
+    subscription_expires_at: r.subscription_expires_at,
+    device: { imei1: r.imei1, brand: r.brand, model: r.model }
+  };
+}
+
+/**
+ * Initie l'encaissement de l'abonnement d'un appareil par LIEN de collecte ORZAYAH.
+ * Le payeur est redirigé vers pay.orzayah.com et choisit son moyen de paiement.
+ */
+export async function initiateDeviceSubscription({ consumerId, registrationId, months = 1 }) {
+  const quote = await deviceQuote({ registrationId, consumerId, months });
+  const amountFcfa = quote.amount_due_fcfa;
+  const amountCentimes = amountFcfa * 100;
+  const idempotencyKey = `subdev-${crypto.randomUUID()}`;
+  const label = 'Abonnement gaRAN';
+  const description = quote.is_first ? `${label} — mise en service + ${months} mois` : `${label} — ${months} mois`;
+
+  const { rows } = await query(
+    `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, device_registration_id, amount, months, operator, status)
+     VALUES ($1,'subscription_consumer','consumer',$2,$3,$4,$5,'LINK','INITIATED') RETURNING id`,
+    [idempotencyKey, consumerId, registrationId, amountCentimes, months]
+  );
+  const paymentId = rows[0].id;
+
+  try {
+    const link = await createPaymentLink({ amount: amountCentimes, description, idempotencyKey });
+    const url = link.url ?? payUrl(link.slug);
+    await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [paymentId, link.slug]);
+    return {
+      payment_id: paymentId,
+      status: 'PENDING',
+      amount_fcfa: amountFcfa,
+      months,
+      is_first: quote.is_first,
+      payment_url: url,
+      next_action: { type: 'REDIRECT', url }
+    };
+  } catch (err) {
+    await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
+    throw err;
+  }
+}
+
+/** Crédite l'abonnement sur l'APPAREIL : prolonge l'échéance et marque la mise en service payée. */
+async function applyDeviceSubscription(c, row) {
+  const months = row.months || 1;
+  const { rows } = await c.query(
+    `UPDATE device_registrations
+     SET subscription_expires_at = GREATEST(now(), COALESCE(subscription_expires_at, now())) + ($2 || ' months')::interval,
+         setup_paid_at = COALESCE(setup_paid_at, now())
+     WHERE id = $1 RETURNING subscription_expires_at`,
+    [row.device_registration_id, months]
+  );
+  return rows[0]?.subscription_expires_at ?? null;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Abonnement PLATEFORME au niveau du compte (marchand)                        */
+/* ------------------------------------------------------------------------- */
+
+/** Devis d'abonnement d'un compte (marchand) : mise en service si 1re souscription. */
 export async function subscriptionQuote({ subjectType, subjectId, months = 1 }) {
   const table = subjectType === 'organization' ? 'organizations' : 'consumers';
   const { rows } = await query(`SELECT subscription_expires_at FROM ${table} WHERE id = $1`, [subjectId]);
@@ -26,11 +120,7 @@ export async function subscriptionQuote({ subjectType, subjectId, months = 1 }) 
 const PAY_BASE = (process.env.ORZAYAH_PAY_BASE ?? 'https://pay.orzayah.com/p').replace(/\/$/, '');
 const payUrl = (slug) => `${PAY_BASE}/${encodeURIComponent(slug)}`;
 
-/**
- * Initie l'encaissement d'un abonnement par LIEN de collecte ORZAYAH (pay.orzayah.com).
- * Le payeur est redirigé vers la page sécurisée et choisit lui-même son moyen de paiement :
- * aucun opérateur ni numéro n'est demandé dans l'app. Crée la trace et renvoie l'URL de paiement.
- */
+/** Initie l'encaissement d'un abonnement compte (marchand) par LIEN de collecte ORZAYAH. */
 export async function initiateSubscription({ subjectType, subjectId, months = 1 }) {
   const quote = await subscriptionQuote({ subjectType, subjectId, months });
   const amountFcfa = quote.amount_due_fcfa;
@@ -94,7 +184,8 @@ async function applySubscription(c, row) {
 
 /**
  * Relit le statut d'un paiement auprès d'ORZAYAH et, au succès, crédite l'abonnement
- * une seule fois (idempotent). Renvoie { status, applied, expires_at }.
+ * une seule fois (idempotent). Crédite l'appareil si le paiement y est rattaché,
+ * sinon le compte. Renvoie { status, applied, expires_at }.
  */
 export async function pollSubscription(paymentId, { subjectType, subjectId }) {
   const row = (
@@ -121,9 +212,11 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
   if (status !== 'SUCCESS') return { status, applied: false, expires_at: null };
 
   const expires = await withTransaction(async (c) => {
-    const locked = (await c.query(`SELECT applied, subject_type, subject_id, months, amount, reference, idempotency_key FROM orzayah_payments WHERE id = $1 FOR UPDATE`, [paymentId])).rows[0];
+    const locked = (await c.query(`SELECT applied, subject_type, subject_id, device_registration_id, months, amount, reference, idempotency_key FROM orzayah_payments WHERE id = $1 FOR UPDATE`, [paymentId])).rows[0];
     if (locked.applied) return null;
-    const exp = await applySubscription(c, locked);
+    const exp = locked.device_registration_id
+      ? await applyDeviceSubscription(c, locked)
+      : await applySubscription(c, locked);
     await c.query(`UPDATE orzayah_payments SET applied = true WHERE id = $1`, [paymentId]);
     return exp;
   });
@@ -140,9 +233,9 @@ const lastSync = new Map();
 
 /**
  * Relit auprès d'ORZAYAH les paiements d'abonnement encore en attente d'un compte et crédite
- * l'abonnement s'ils sont payés (idempotent, via pollSubscription). Sert quand l'application a été
- * fermée pendant le paiement : le suivi côté écran est alors perdu, mais la trace reste en base.
- * Limité à 5 paiements récents (10 jours) ; appels ORZAYAH en parallèle avec une échéance globale.
+ * l'abonnement (compte ou appareil) s'ils sont payés (idempotent, via pollSubscription). Sert
+ * quand l'application a été fermée pendant le paiement : le suivi côté écran est alors perdu,
+ * mais la trace reste en base. Limité à 5 paiements récents (10 jours).
  * Renvoie { checked, applied, expires_at }.
  */
 export async function syncSubscriptions({ subjectType, subjectId, force = false, deadlineMs = 8000 }) {

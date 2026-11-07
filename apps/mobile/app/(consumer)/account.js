@@ -5,7 +5,6 @@ import { useMutation } from '@tanstack/react-query';
 import { Banner, Button, Card, ErrorBanner, Input, Muted, Row, Screen, Title } from '../../src/components/ui';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
-import { date } from '../../src/lib/format';
 
 export default function ConsumerAccount() {
   const { consumer, reloadConsumer, logout } = useAuth();
@@ -55,8 +54,9 @@ export default function ConsumerAccount() {
 
       <Card>
         <Muted>Abonnement gaRAN</Muted>
-        <Row label="Statut" value={consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date() ? `Actif jusqu’au ${date(consumer.subscription_expires_at)}` : 'Non abonné'} />
-        <Button title="S’abonner / Renouveler (125 FCFA/mois)" onPress={() => router.push('/subscribe')} />
+        <Row label="Appareils protégés" value={`${(consumer?.devices_count ?? 0) - (consumer?.devices_unpaid ?? 0)} / ${consumer?.devices_count ?? 0}`} />
+        {consumer?.devices_unpaid ? <Muted>{consumer.devices_unpaid} appareil(s) à abonner. L’abonnement se fait par appareil, depuis la fiche de chaque téléphone.</Muted> : <Muted>Chaque téléphone a son propre abonnement (125 FCFA/mois + mise en service).</Muted>}
+        <Button title="Gérer mes téléphones" onPress={() => router.push('/home')} />
       </Card>
 
       <Card>

@@ -50,6 +50,7 @@ function PhoneCard({ item }) {
           {item.imei2 ? <InfoRow label="IMEI 2" value={item.imei2} /> : null}
           {specs ? <InfoRow label="Caractéristiques" value={specs} /> : null}
           <InfoRow label={active ? 'Lié le' : 'Délié le'} value={date(active ? item.acquired_at : item.released_at)} />
+          {active ? <InfoRow label="Abonnement" value={item.subscription_expires_at && new Date(item.subscription_expires_at) > new Date() ? `Jusqu’au ${date(item.subscription_expires_at)}` : 'À activer'} /> : null}
           {item.merchant_name ? <InfoRow label="Marchand" value={item.merchant_name} /> : null}
           {item.receipt_number ? <InfoRow label="N° reçu" value={item.receipt_number} /> : null}
         </View>
@@ -64,7 +65,8 @@ export default function ConsumerHome() {
   const items = data?.items ?? [];
   const active = items.filter((i) => i.status === 'active');
   const firstName = consumer?.full_name?.split(' ')[0] ?? '';
-  const subscribed = consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date();
+  const now = Date.now();
+  const unpaid = active.filter((i) => !(i.subscription_expires_at && new Date(i.subscription_expires_at).getTime() > now));
 
   return (
     <>
@@ -81,21 +83,30 @@ export default function ConsumerHome() {
       <Screen refreshing={isFetching && !isLoading} onRefresh={refetch}>
         <UpdateBanner />
 
-        {subscribed ? (
+        {active.length > 0 && unpaid.length === 0 ? (
           <ProtectedHero
             tone="protected"
             eyebrow={`Bonjour ${firstName}`}
             title="Vous êtes protégé"
-            subtitle={`${active.length} téléphone(s) lié(s) · abonnement actif jusqu'au ${date(consumer.subscription_expires_at)}`}
+            subtitle={`${active.length} téléphone(s) lié(s), tous à jour d’abonnement.`}
           />
+        ) : unpaid.length > 0 ? (
+          <ProtectedHero
+            tone="soft"
+            eyebrow={`Bonjour ${firstName}`}
+            title={`${unpaid.length} appareil(s) à abonner`}
+            subtitle="Chaque téléphone a son propre abonnement — 125 FCFA/mois (+ mise en service). Activez-le pour signaler un vol et générer vos documents certifiés."
+          >
+            <Button title="Abonner un appareil" onPress={() => router.push(`/subscribe?reg=${unpaid[0].registration_id}`)} />
+          </ProtectedHero>
         ) : (
           <ProtectedHero
             tone="soft"
             eyebrow={`Bonjour ${firstName}`}
             title="Protégez vos téléphones"
-            subtitle="Abonnez-vous pour signaler un vol en un clic et prouver que vos téléphones sont à vous — 125 FCFA/mois."
+            subtitle="Enregistrez un téléphone puis abonnez-le pour signaler un vol en un clic et prouver qu’il est à vous."
           >
-            <Button title="S’abonner (125 FCFA/mois)" onPress={() => router.push('/subscribe')} />
+            <Button title="Linker mon téléphone" onPress={() => router.push('/link')} />
           </ProtectedHero>
         )}
 

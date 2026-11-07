@@ -21,12 +21,12 @@ export default function ConsumerDevice() {
   const { consumer } = useAuth();
   const [docBusy, setDocBusy] = useState(null); // 'cert' | 'receipt' | null
   const [docError, setDocError] = useState(null);
-  const paid = Boolean(consumer?.subscription_expires_at && new Date(consumer.subscription_expires_at) > new Date());
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['consumer', 'devices'],
     queryFn: () => api.get('/consumer/devices')
   });
   const item = data?.items?.find((i) => i.registration_id === id);
+  const paid = Boolean(item?.subscription_expires_at && new Date(item.subscription_expires_at) > new Date());
 
   const release = useMutation({
     mutationFn: () => api.post(`/consumer/devices/${id}/release`),
@@ -163,6 +163,20 @@ export default function ConsumerDevice() {
 
       {active ? (
         <Card>
+          <Muted>Abonnement de l’appareil</Muted>
+          {paid ? (
+            <Row label="Statut" value={`Actif jusqu’au ${date(item.subscription_expires_at)}`} />
+          ) : (
+            <Muted style={{ color: colors.ink3, marginBottom: 8 }}>
+              {item.subscription_expires_at ? `Abonnement expiré le ${date(item.subscription_expires_at)}.` : 'Cet appareil n’est pas encore activé.'} Chaque appareil a son propre abonnement : mise en service unique + mensualité.
+            </Muted>
+          )}
+          <Button title={paid ? 'Renouveler / payer plusieurs mois' : 'Abonner cet appareil'} onPress={() => router.push(`/subscribe?reg=${id}`)} />
+        </Card>
+      ) : null}
+
+      {active ? (
+        <Card>
           <Muted>Mes documents gaRAN</Muted>
           {paid ? (
             <>
@@ -180,7 +194,7 @@ export default function ConsumerDevice() {
               <Muted style={{ color: colors.ink3, marginBottom: 8 }}>
                 Les documents certifiés gaRAN sont réservés aux appareils dont l’abonnement est actif.
               </Muted>
-              <Button title="Activer mon abonnement" onPress={() => router.push('/subscribe')} />
+              <Button title="Activer mon abonnement" onPress={() => router.push(`/subscribe?reg=${id}`)} />
             </>
           )}
         </Card>

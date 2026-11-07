@@ -54,8 +54,7 @@ async function notifyEmailChange({ oldEmail, newEmail, name }) {
     text: `${hello}\nCette adresse est désormais associée à votre compte gaRAN.`
   }).catch(() => {});
 }
-import { OPERATORS } from '../lib/orzayah.js';
-import { initiateSubscription, pollSubscription, syncSubscriptions, subscriptionQuote } from './subscription.service.js';
+import { initiateDeviceSubscription, deviceQuote, pollSubscription, syncSubscriptions } from './subscription.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { verifyAccessToken } from '../lib/security.js';
@@ -73,7 +72,11 @@ const accessToken = (c) => signAccessToken({ sub: c.id, typ: 'consumer' });
 
 async function loadConsumer(id) {
   const { rows } = await query(
-    `SELECT id, full_name, phone, email, emergency_number, emergency_name, status, subscription_expires_at, created_at FROM consumers WHERE id = $1`,
+    `SELECT c.id, c.full_name, c.phone, c.email, c.emergency_number, c.emergency_name, c.status, c.subscription_expires_at, c.created_at,
+            (SELECT count(*) FROM device_registrations r WHERE r.consumer_id = c.id AND r.status = 'active')::int AS devices_count,
+            (SELECT count(*) FROM device_registrations r WHERE r.consumer_id = c.id AND r.status = 'active'
+               AND (r.subscription_expires_at IS NULL OR r.subscription_expires_at < now()))::int AS devices_unpaid
+     FROM consumers c WHERE c.id = $1`,
     [id]
   );
   if (!rows[0]) throw notFound('Compte introuvable');
@@ -378,7 +381,7 @@ consumerRouter.get(
 consumerRouter.get('/devices', requireConsumer, async (req, res) => {
   const { rows } = await query(
     `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
-            r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email,
+            r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email, r.subscription_expires_at, r.setup_paid_at,
             d.id AS device_id, d.imei1, d.imei2, d.status AS device_status, d.color, d.storage_gb,
             COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
      FROM device_registrations r
@@ -511,28 +514,39 @@ consumerRouter.post(
   }
 );
 
-/* ---------------------- Abonnement (paiement ORZAYAH) ---------------------- */
+/* --------------- Abonnement d'un appareil (paiement ORZAYAH) --------------- */
+/* La sécurisation est par appareil : chaque appareil paie sa mise en service (une
+   fois) puis son abonnement mensuel, payable plusieurs mois d'avance. */
 
-consumerRouter.get('/subscription/plan', requireConsumer, async (req, res) => {
-  const q = await subscriptionQuote({ subjectType: 'consumer', subjectId: req.auth.sub });
-  res.json({ ...q, price_fcfa: q.month_fcfa });
-});
-
-consumerRouter.post(
-  '/subscription/orzayah',
+/** Devis d'abonnement d'un appareil (mise en service si 1re souscription + N mois). */
+consumerRouter.get(
+  '/devices/:reg/subscription/plan',
   requireConsumer,
-  validate({ body: z.object({ operator: z.enum(OPERATORS).optional(), account_number: z.string().trim().regex(/^\d{8,15}$/, 'Numéro Mobile Money invalide').optional(), months: z.coerce.number().int().min(1).max(12).default(1) }) }),
+  validate({ params: z.object({ reg: zUuid }) }),
   async (req, res) => {
-    const r = await initiateSubscription({ subjectType: 'consumer', subjectId: req.auth.sub, months: req.v.body.months, operator: req.v.body.operator, accountNumber: req.v.body.account_number });
-    await audit(req, 'consumer.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
+    const months = Math.min(12, Math.max(1, parseInt(req.query.months, 10) || 1));
+    const q = await deviceQuote({ registrationId: req.v.params.reg, consumerId: req.auth.sub, months });
+    res.json({ ...q, price_fcfa: q.month_fcfa });
+  }
+);
+
+/** Initie l'encaissement de l'abonnement d'un appareil (lien ORZAYAH), N mois d'avance. */
+consumerRouter.post(
+  '/devices/:reg/subscription/orzayah',
+  requireConsumer,
+  validate({ params: z.object({ reg: zUuid }), body: z.object({ months: z.coerce.number().int().min(1).max(12).default(1) }) }),
+  async (req, res) => {
+    const r = await initiateDeviceSubscription({ consumerId: req.auth.sub, registrationId: req.v.params.reg, months: req.v.body.months });
+    await audit(req, 'consumer.subscription_initiated', { entity: 'orzayah_payment', entityId: r.payment_id, meta: { registration_id: req.v.params.reg, months: req.v.body.months } });
     res.status(201).json(r);
   }
 );
 
+/** Relit le statut d'un paiement d'abonnement d'appareil. */
 consumerRouter.get(
-  '/subscription/orzayah/:id',
+  '/devices/:reg/subscription/orzayah/:id',
   requireConsumer,
-  validate({ params: z.object({ id: zUuid }) }),
+  validate({ params: z.object({ reg: zUuid, id: zUuid }) }),
   async (req, res) => {
     const r = await pollSubscription(req.v.params.id, { subjectType: 'consumer', subjectId: req.auth.sub });
     res.json({ ...r, consumer: await loadConsumer(req.auth.sub) });
