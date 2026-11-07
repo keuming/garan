@@ -26,7 +26,7 @@ export default {
       fallbackToCacheTimeout: 0
     },
     // Version web (PWA) : la même app servie dans le navigateur (iPhone inclus).
-    web: { bundler: 'metro', output: 'static', favicon: './assets/icon.png' },
+    web: { bundler: 'metro', output: 'single', favicon: './assets/icon.png' },
     splash: { image: './assets/splash.png', resizeMode: 'contain', backgroundColor: '#00D27A' },
     ios: {
       bundleIdentifier: 'com.orzayah.garan',

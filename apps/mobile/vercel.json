@@ -1,8 +1,6 @@
 {
-  "cleanUrls": true,
   "rewrites": [
-    { "source": "/device/:id", "destination": "/device/[id].html" },
-    { "source": "/receipt/:id", "destination": "/receipt/[id].html" }
+    { "source": "/((?!_expo/|assets/|.*\\.[^/]+$).*)", "destination": "/index.html" }
   ],
   "headers": [
     { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
