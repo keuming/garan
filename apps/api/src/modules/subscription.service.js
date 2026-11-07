@@ -2,6 +2,7 @@
 import { query, withTransaction } from '../db.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { createPaymentLink, getPaymentLink, getOperation, opStatus } from '../lib/orzayah.js';
+import { creditConsumerReferral, creditMerchantReferral } from './bd.service.js';
 import { logger } from '../logger.js';
 
 /* Tarifs en FCFA. PLAN_FCFA = abonnement mensuel ; SETUP_FCFA = mise en service
@@ -91,6 +92,8 @@ export async function initiateDeviceSubscription({ consumerId, registrationId, m
 /** Crédite l'abonnement sur l'APPAREIL : prolonge l'échéance et marque la mise en service payée. */
 async function applyDeviceSubscription(c, row) {
   const months = row.months || 1;
+  const before = (await c.query(`SELECT setup_paid_at FROM device_registrations WHERE id = $1`, [row.device_registration_id])).rows[0];
+  const firstSetup = Boolean(before && !before.setup_paid_at);
   const { rows } = await c.query(
     `UPDATE device_registrations
      SET subscription_expires_at = GREATEST(now(), COALESCE(subscription_expires_at, now())) + ($2 || ' months')::interval,
@@ -98,6 +101,7 @@ async function applyDeviceSubscription(c, row) {
      WHERE id = $1 RETURNING subscription_expires_at`,
     [row.device_registration_id, months]
   );
+  await creditConsumerReferral(c, { consumerId: row.subject_id, firstSetup, months, source: row.id ?? row.idempotency_key });
   return rows[0]?.subscription_expires_at ?? null;
 }
 
@@ -186,6 +190,7 @@ export async function initiateMerchantSetup({ orgId }) {
 /** Crédite un versement de mise en service sur le compte marchand (plafonné au total). */
 async function applyMerchantSetup(c, row) {
   const amountFcfa = Math.round(Number(row.amount) / 100);
+  const before = (await c.query(`SELECT setup_paid_fcfa FROM organizations WHERE id = $1`, [row.subject_id])).rows[0];
   const { rows } = await c.query(
     `UPDATE organizations
      SET setup_paid_fcfa = LEAST($2::int, setup_paid_fcfa + $3::int),
@@ -194,7 +199,11 @@ async function applyMerchantSetup(c, row) {
      WHERE id = $1 RETURNING setup_paid_fcfa`,
     [row.subject_id, MERCHANT_SETUP_TOTAL_FCFA, amountFcfa]
   );
-  return rows[0]?.setup_paid_fcfa ?? null;
+  const after = rows[0]?.setup_paid_fcfa ?? 0;
+  if ((before?.setup_paid_fcfa ?? 0) < MERCHANT_SETUP_TOTAL_FCFA && after >= MERCHANT_SETUP_TOTAL_FCFA) {
+    await creditMerchantReferral(c, { orgId: row.subject_id, source: row.id ?? row.idempotency_key });
+  }
+  return after;
 }
 
 /** Initie l'encaissement d'un abonnement compte (marchand) par LIEN de collecte ORZAYAH. */
@@ -289,7 +298,7 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
   if (status !== 'SUCCESS') return { status, applied: false, expires_at: null };
 
   const expires = await withTransaction(async (c) => {
-    const locked = (await c.query(`SELECT applied, purpose, subject_type, subject_id, device_registration_id, months, amount, reference, idempotency_key FROM orzayah_payments WHERE id = $1 FOR UPDATE`, [paymentId])).rows[0];
+    const locked = (await c.query(`SELECT id, applied, purpose, subject_type, subject_id, device_registration_id, months, amount, reference, idempotency_key FROM orzayah_payments WHERE id = $1 FOR UPDATE`, [paymentId])).rows[0];
     if (locked.applied) return null;
     const exp = locked.purpose === 'setup_merchant'
       ? await applyMerchantSetup(c, locked)

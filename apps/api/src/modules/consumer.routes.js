@@ -55,6 +55,7 @@ async function notifyEmailChange({ oldEmail, newEmail, name }) {
   }).catch(() => {});
 }
 import { initiateDeviceSubscription, deviceQuote, pollSubscription, syncSubscriptions } from './subscription.service.js';
+import { resolvePromoCode, bdSummary, requestBecomeBD } from './bd.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { verifyAccessToken } from '../lib/security.js';
@@ -80,7 +81,7 @@ async function loadConsumer(id) {
     [id]
   );
   if (!rows[0]) throw notFound('Compte introuvable');
-  return rows[0];
+  return { ...rows[0], business_developer: await bdSummary(id) };
 }
 
 /** Middleware : authentifie un usager. */
@@ -100,7 +101,7 @@ async function requireConsumer(req, _res, next) {
 consumerRouter.post(
   '/auth/register',
   authLimiter,
-  validate({ body: z.object({ full_name: zText(120), phone: zPhone, email: zOptionalEmail, pin: zPin }) }),
+  validate({ body: z.object({ full_name: zText(120), phone: zPhone, email: zOptionalEmail, pin: zPin, promo_code: z.string().trim().max(16).optional() }) }),
   async (req, res) => {
     const b = req.v.body;
     if ((await query(`SELECT 1 FROM consumers WHERE phone = $1`, [b.phone])).rowCount) {
@@ -110,6 +111,10 @@ consumerRouter.post(
       `INSERT INTO consumers (full_name, phone, email, pin_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
       [b.full_name, b.phone, b.email, await hashSecret(b.pin)]
     );
+    if (b.promo_code) {
+      const bdId = await resolvePromoCode(b.promo_code);
+      if (bdId) await query(`UPDATE consumers SET referred_by_bd_id = $2 WHERE id = $1`, [rows[0].id, bdId]);
+    }
     req.auth = { typ: 'consumer', sub: rows[0].id };
     await audit(req, 'consumer.register', { entity: 'consumer', entityId: rows[0].id });
     await sendWelcome({ email: b.email, name: b.full_name });
@@ -559,6 +564,20 @@ consumerRouter.post('/subscription/sync', requireConsumer, async (req, res) => {
   const r = await syncSubscriptions({ subjectType: 'consumer', subjectId: req.auth.sub, force: true });
   if (r.applied) await audit(req, 'consumer.subscription_activated', { entity: 'consumer', entityId: req.auth.sub });
   res.json({ ...r, consumer: await loadConsumer(req.auth.sub) });
+});
+
+/* -------------------- Business Développeur (parrainage) -------------------- */
+
+/** Statut BD de l'usager (code promo + stats si actif). */
+consumerRouter.get('/business-developer', requireConsumer, async (req, res) => {
+  res.json(await bdSummary(req.auth.sub));
+});
+
+/** Demande à devenir Business Développeur (soumise à validation du back-office). */
+consumerRouter.post('/business-developer/request', requireConsumer, async (req, res) => {
+  const r = await requestBecomeBD(req.auth.sub);
+  await audit(req, 'consumer.bd_request', { entity: 'consumer', entityId: req.auth.sub });
+  res.status(201).json({ ...r, consumer: await loadConsumer(req.auth.sub) });
 });
 
 /** Vérification publique simple d'un IMEI, utile avant un achat d'occasion. */

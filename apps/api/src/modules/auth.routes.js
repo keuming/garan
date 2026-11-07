@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { query, withTransaction } from '../db.js';
 import { AppError, conflict, notFound, unauthorized } from '../lib/errors.js';
+import { resolvePromoCode } from './bd.service.js';
 import {
   hashSecret,
   issueRefreshToken,
@@ -74,7 +75,8 @@ authRouter.post(
       rccm: zText(60),
       full_name: z.string().trim().max(120).optional(),
       login_phone: zPhone,
-      pin: zPin
+      pin: zPin,
+      promo_code: z.string().trim().max(16).optional()
     })
   }),
   async (req, res) => {
@@ -109,6 +111,10 @@ authRouter.post(
       return u.rows[0];
     });
 
+    if (b.promo_code) {
+      const bdId = await resolvePromoCode(b.promo_code);
+      if (bdId) await query(`UPDATE organizations SET referred_by_bd_id = $2 WHERE id = $1`, [user.organization_id, bdId]);
+    }
     req.auth = { typ: 'user', sub: user.id };
     await audit(req, 'auth.register', { entity: 'organization', entityId: user.organization_id });
     const refreshToken = await issueRefreshToken('user', user.id, meta(req));
