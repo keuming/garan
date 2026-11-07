@@ -1,6 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, Stack } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Banner, Button, Card, Loading, Muted, Screen, Wordmark } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/UpdateBanner';
 import { ProtectedHero } from '../../src/components/ProtectedHero';
@@ -56,6 +56,78 @@ function PhoneCard({ item }) {
         </View>
       </Card>
     </Pressable>
+  );
+}
+
+const nf = (n) => new Intl.NumberFormat('fr-FR').format(Number(n) || 0);
+
+function BdStat({ label, value }) {
+  return (
+    <View style={{ alignItems: 'center', minWidth: 70 }}>
+      <Text style={{ fontSize: 16, fontWeight: '800', color: colors.ink }}>{value}</Text>
+      <Text style={{ fontSize: 11.5, color: colors.ink2 }}>{label}</Text>
+    </View>
+  );
+}
+
+/** Bloc parrainage sur l'accueil : demande, ou code promo + partage une fois validé. */
+function BusinessDeveloperCard() {
+  const { consumer, reloadConsumer } = useAuth();
+  const bd = consumer?.business_developer;
+  const request = useMutation({
+    mutationFn: () => api.post('/consumer/business-developer/request', {}),
+    onSuccess: async () => { await reloadConsumer?.(); Alert.alert('Demande envoyée', 'Votre demande pour devenir Business Développeur est en cours de validation.'); },
+    onError: (e) => Alert.alert('Impossible pour le moment', e?.message ?? 'Réessayez plus tard.')
+  });
+  if (!bd) return null;
+
+  if (bd.status === 'active') {
+    const code = bd.promo_code;
+    const s = bd.stats ?? {};
+    const link = 'https://apps.garan.solutions';
+    const msg = `Protège ton téléphone contre le vol avec gaRAN. Utilise mon code promo ${code} à l'inscription : ${link}`;
+    const openUrl = (u) => Linking.openURL(u).catch(() => Alert.alert('Partage impossible', 'Application de partage introuvable sur cet appareil.'));
+    return (
+      <Card style={{ gap: 12, borderWidth: 1, borderColor: colors.green }}>
+        <Muted>Mon espace Business Développeur</Muted>
+        <View style={{ alignItems: 'center', gap: 2 }}>
+          <Text style={{ fontSize: 12.5, color: colors.ink2 }}>Votre code promo à partager</Text>
+          <Text style={{ fontSize: 32, fontWeight: '900', letterSpacing: 4, color: colors.green }}>{code}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap', gap: 8 }}>
+          <BdStat label="Usagers" value={s.usagers ?? 0} />
+          <BdStat label="Marchands" value={s.marchands ?? 0} />
+          <BdStat label="Gagné" value={`${nf(s.total_fcfa ?? 0)} F`} />
+          <BdStat label="Dû" value={`${nf(s.due_fcfa ?? 0)} F`} />
+        </View>
+        <Button title="Partager sur WhatsApp" onPress={() => openUrl('https://wa.me/?text=' + encodeURIComponent(msg))} />
+        <Button title="Partager par SMS" variant="secondary" onPress={() => openUrl('sms:?body=' + encodeURIComponent(msg))} />
+      </Card>
+    );
+  }
+  if (bd.status === 'pending') {
+    return (
+      <Card style={{ gap: 6 }}>
+        <Muted>Business Développeur</Muted>
+        <Text style={{ color: colors.ink2, fontSize: 13 }}>Votre demande est en cours de validation. Vous recevrez votre code promo dès qu'elle sera acceptée.</Text>
+      </Card>
+    );
+  }
+  if (bd.status === 'suspended') {
+    return (
+      <Card style={{ gap: 6 }}>
+        <Muted>Business Développeur</Muted>
+        <Text style={{ color: colors.ink2, fontSize: 13 }}>Votre accès Business Développeur est suspendu. Contactez le support gaRAN.</Text>
+      </Card>
+    );
+  }
+  // 'none' ou 'rejected'
+  return (
+    <Card style={{ gap: 8 }}>
+      <Muted>Devenez Business Développeur</Muted>
+      <Text style={{ color: colors.ink2, fontSize: 13 }}>Recommandez gaRAN et gagnez des commissions : 250 FCFA par usager recruté, 2 000 FCFA par marchand, et 25 FCFA à chaque abonnement mensuel de vos filleuls.</Text>
+      <Button title={bd.status === 'rejected' ? 'Renouveler ma demande' : 'Devenir Business Développeur'} onPress={() => request.mutate()} loading={request.isPending} />
+    </Card>
   );
 }
 
@@ -117,6 +189,8 @@ export default function ConsumerHome() {
           <Tile title="Pourquoi gaRAN ?" sub="Sécurité, avantages, abonnement" icon="🛡️" tone="white" onPress={() => router.push('/why')} />
           <Tile title="Mon compte" sub="Profil et sécurité" icon="👤" tone="white" onPress={() => router.push('/account')} />
         </View>
+
+        <BusinessDeveloperCard />
 
         <Text style={st.section}>Mes téléphones</Text>
         {isLoading ? <Loading /> : null}

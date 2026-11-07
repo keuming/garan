@@ -9,7 +9,7 @@ const LABEL = { consumer: 'Usager', merchant: 'Marchand', super_merchant: 'Super
 /* ------------------------------ Usager ------------------------------ */
 function ConsumerRegister() {
   const { registerConsumer } = useAuth();
-  const [f, setF] = useState({ full_name: '', phone: '', email: '', pin: '', pin2: '' });
+  const [f, setF] = useState({ full_name: '', phone: '', email: '', pin: '', pin2: '', promo_code: '' });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const set = (k) => (v) => setF({ ...f, [k]: v });
@@ -20,7 +20,7 @@ function ConsumerRegister() {
     setBusy(true);
     setError(null);
     try {
-      await registerConsumer({ full_name: f.full_name, phone: f.phone, email: f.email || undefined, pin: f.pin });
+      await registerConsumer({ full_name: f.full_name, phone: f.phone, email: f.email || undefined, pin: f.pin, promo_code: f.promo_code || undefined });
     } catch (e) {
       setError(e);
     } finally {
@@ -37,6 +37,7 @@ function ConsumerRegister() {
         <Input label="Adresse e-mail (facultatif)" value={f.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" />
         <Input label="Code PIN (4 chiffres)" value={f.pin} onChangeText={(t) => set('pin')(t.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" secureTextEntry maxLength={4} />
         <Input label="Confirmer le code PIN" value={f.pin2} onChangeText={(t) => set('pin2')(t.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" secureTextEntry maxLength={4} error={mismatch ? 'Les codes PIN ne correspondent pas' : null} />
+        <Input label="Code promo (facultatif)" value={f.promo_code} onChangeText={(t) => set('promo_code')(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))} autoCapitalize="characters" placeholder="Code d’un Business Développeur (si recommandé)" />
         <Button title="Créer mon compte" onPress={submit} loading={busy} disabled={!ready} />
       </Card>
     </Screen>
@@ -46,7 +47,7 @@ function ConsumerRegister() {
 /* --------------------- Marchand / Super marchand --------------------- */
 function MerchantRegister({ type }) {
   const { registerMerchant } = useAuth();
-  const [f, setF] = useState({ country: "Côte d'Ivoire", city: '', district: '', shop_name: '', contact_phone: '', email: '', rccm: '', login_phone: '', pin: '', pin2: '' });
+  const [f, setF] = useState({ country: "Côte d'Ivoire", city: '', district: '', shop_name: '', contact_phone: '', email: '', rccm: '', login_phone: '', pin: '', pin2: '', promo_code: '' });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const set = (k) => (v) => setF({ ...f, [k]: v });
@@ -90,6 +91,7 @@ function MerchantRegister({ type }) {
         <Input label="Login (numéro de téléphone)" value={f.login_phone} onChangeText={set('login_phone')} keyboardType="phone-pad" />
         <Input label="Code PIN (4 chiffres)" value={f.pin} onChangeText={(t) => set('pin')(t.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" secureTextEntry maxLength={4} />
         <Input label="Confirmer le code PIN" value={f.pin2} onChangeText={(t) => set('pin2')(t.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" secureTextEntry maxLength={4} error={mismatch ? 'Les codes PIN ne correspondent pas' : null} />
+        <Input label="Code promo (facultatif)" value={f.promo_code} onChangeText={(t) => set('promo_code')(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))} autoCapitalize="characters" placeholder="Code d’un Business Développeur (si recommandé)" />
       </Card>
       <Banner tone="info">Ne communiquez jamais votre code PIN.</Banner>
       <Button title="Créer mon compte" onPress={submit} loading={busy} disabled={!ready} />
