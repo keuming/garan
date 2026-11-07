@@ -25,6 +25,8 @@ export default function AppLayout() {
       <Stack.Screen name="report-theft" options={{ title: 'Déclarer un vol' }} />
       <Stack.Screen name="stolen" options={{ title: 'Téléphones volés' }} />
       <Stack.Screen name="subscribe" options={{ title: 'Abonnement' }} />
+      <Stack.Screen name="subscribe-setup" options={{ title: 'Mise en service' }} />
+      <Stack.Screen name="subscribe-month" options={{ title: 'Abonnement mensuel' }} />
       <Stack.Screen name="why" options={{ title: 'Pourquoi gaRAN ?' }} />
       <Stack.Screen name="receipt/[id]" options={{ title: 'Reçu' }} />
       <Stack.Screen name="history" options={{ title: 'Historique' }} />

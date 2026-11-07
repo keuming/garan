@@ -8,7 +8,7 @@ import { audit } from '../lib/audit.js';
 import { requireOwner, requireUser } from '../middleware/auth.js';
 import { OPERATORS, probeMerchantKey } from '../lib/orzayah.js';
 import { seal } from '../lib/secret-box.js';
-import { initiateSubscription, pollSubscription, subscriptionQuote } from './subscription.service.js';
+import { initiateSubscription, pollSubscription, subscriptionQuote, merchantSetupState, initiateMerchantSetup } from './subscription.service.js';
 
 const zSubscribe = z.object({
   operator: z.enum(OPERATORS).optional(),
@@ -85,6 +85,26 @@ orgRouter.get('/subscription/orzayah/:id', validate({ params: z.object({ id: zUu
   const r = await pollSubscription(req.v.params.id, { subjectType: 'organization', subjectId: req.auth.orgId });
   const org = (await query(`SELECT status, subscription_expires_at FROM organizations WHERE id = $1`, [req.auth.orgId])).rows[0];
   res.json({ ...r, organization: org });
+});
+
+/* --------- Mise en service marchand : 10 000 FCFA en versements de 2 500 --------- */
+
+// État de la mise en service (total, payé, reste, prochain versement, échéance 30 j).
+orgRouter.get('/setup/plan', async (req, res) => {
+  res.json(await merchantSetupState(req.auth.orgId));
+});
+
+// Initie un versement (2 500 FCFA, ou le reste) par lien ORZAYAH.
+orgRouter.post('/setup/orzayah', async (req, res) => {
+  const r = await initiateMerchantSetup({ orgId: req.auth.orgId });
+  await audit(req, 'org.setup_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
+  res.status(201).json(r);
+});
+
+// Suit le statut d'un versement ; au succès il est crédité sur la mise en service.
+orgRouter.get('/setup/orzayah/:id', validate({ params: z.object({ id: zUuid }) }), async (req, res) => {
+  const r = await pollSubscription(req.v.params.id, { subjectType: 'organization', subjectId: req.auth.orgId });
+  res.json({ ...r, setup: await merchantSetupState(req.auth.orgId) });
 });
 
 /* ------------------------------- Magasins ------------------------------- */

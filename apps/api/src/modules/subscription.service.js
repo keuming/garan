@@ -1,6 +1,6 @@
 ﻿import crypto from 'node:crypto';
 import { query, withTransaction } from '../db.js';
-import { notFound } from '../lib/errors.js';
+import { badRequest, notFound } from '../lib/errors.js';
 import { createPaymentLink, getPaymentLink, getOperation, opStatus } from '../lib/orzayah.js';
 import { logger } from '../logger.js';
 
@@ -111,14 +111,91 @@ export async function subscriptionQuote({ subjectType, subjectId, months = 1 }) 
   const { rows } = await query(`SELECT subscription_expires_at FROM ${table} WHERE id = $1`, [subjectId]);
   const isFirst = !rows[0]?.subscription_expires_at;
   const monthFcfa = PLAN_FCFA[subjectType];
-  const setupFcfa = isFirst ? SETUP_FCFA[subjectType] : 0;
+  // La mise en service marchand est réglée à part (versements) ; l'abonnement mensuel est seul ici.
+  const setupFcfa = subjectType === 'organization' ? 0 : (isFirst ? SETUP_FCFA[subjectType] : 0);
   const amountDueFcfa = setupFcfa + monthFcfa * months;
-  return { month_fcfa: monthFcfa, setup_fcfa: SETUP_FCFA[subjectType], is_first: isFirst, months, amount_due_fcfa: amountDueFcfa, currency: 'XOF', period: 'month' };
+  return { month_fcfa: monthFcfa, setup_fcfa: setupFcfa, is_first: isFirst, months, amount_due_fcfa: amountDueFcfa, currency: 'XOF', period: 'month' };
 }
 
 /* Page de collecte ORZAYAH (pay.orzayah.com) : le payeur choisit Mobile Money ou carte. */
 const PAY_BASE = (process.env.ORZAYAH_PAY_BASE ?? 'https://pay.orzayah.com/p').replace(/\/$/, '');
 const payUrl = (slug) => `${PAY_BASE}/${encodeURIComponent(slug)}`;
+
+/* ------------------------------------------------------------------------- */
+/* Mise en service marchand par versements (10 000 FCFA, 4 × 2 500, 30 jours) */
+/* ------------------------------------------------------------------------- */
+
+export const MERCHANT_SETUP_TOTAL_FCFA = 10000;
+export const MERCHANT_SETUP_INSTALLMENT_FCFA = 2500;
+export const MERCHANT_SETUP_WINDOW_DAYS = 30;
+
+/** État de la mise en service marchand : total, déjà payé, reste, prochain versement, échéance. */
+export async function merchantSetupState(orgId) {
+  const { rows } = await query(`SELECT setup_paid_fcfa, setup_first_payment_at FROM organizations WHERE id = $1`, [orgId]);
+  const o = rows[0];
+  if (!o) throw notFound('Marchand introuvable');
+  const paid = o.setup_paid_fcfa ?? 0;
+  const total = MERCHANT_SETUP_TOTAL_FCFA;
+  const remaining = Math.max(0, total - paid);
+  const complete = remaining === 0;
+  const dueAt = o.setup_first_payment_at
+    ? new Date(new Date(o.setup_first_payment_at).getTime() + MERCHANT_SETUP_WINDOW_DAYS * 86400000)
+    : null;
+  return {
+    setup_total_fcfa: total,
+    setup_paid_fcfa: paid,
+    remaining_fcfa: remaining,
+    installment_fcfa: complete ? 0 : Math.min(MERCHANT_SETUP_INSTALLMENT_FCFA, remaining),
+    installments_total: Math.ceil(total / MERCHANT_SETUP_INSTALLMENT_FCFA),
+    installments_paid: Math.floor(paid / MERCHANT_SETUP_INSTALLMENT_FCFA),
+    complete,
+    first_payment_at: o.setup_first_payment_at ?? null,
+    due_at: dueAt,
+    overdue: Boolean(dueAt && !complete && Date.now() > dueAt.getTime()),
+    window_days: MERCHANT_SETUP_WINDOW_DAYS
+  };
+}
+
+/** Initie un versement de mise en service marchand (2 500 FCFA, ou le reste) par lien ORZAYAH. */
+export async function initiateMerchantSetup({ orgId }) {
+  const state = await merchantSetupState(orgId);
+  if (state.complete) throw badRequest('SETUP_DONE', 'La mise en service est déjà entièrement réglée.');
+  const amountFcfa = state.installment_fcfa;
+  const amountCentimes = amountFcfa * 100;
+  const idempotencyKey = `setup-org-${crypto.randomUUID()}`;
+  const nextNo = state.installments_paid + 1;
+  const description = `gaRAN — mise en service marchand (versement ${nextNo}/${state.installments_total}, ${amountFcfa} FCFA)`;
+
+  const { rows } = await query(
+    `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, status)
+     VALUES ($1,'setup_merchant','organization',$2,$3,0,'LINK','INITIATED') RETURNING id`,
+    [idempotencyKey, orgId, amountCentimes]
+  );
+  const paymentId = rows[0].id;
+  try {
+    const link = await createPaymentLink({ amount: amountCentimes, description, idempotencyKey });
+    const url = link.url ?? payUrl(link.slug);
+    await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [paymentId, link.slug]);
+    return { payment_id: paymentId, status: 'PENDING', amount_fcfa: amountFcfa, installment_no: nextNo, payment_url: url, next_action: { type: 'REDIRECT', url } };
+  } catch (err) {
+    await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
+    throw err;
+  }
+}
+
+/** Crédite un versement de mise en service sur le compte marchand (plafonné au total). */
+async function applyMerchantSetup(c, row) {
+  const amountFcfa = Math.round(Number(row.amount) / 100);
+  const { rows } = await c.query(
+    `UPDATE organizations
+     SET setup_paid_fcfa = LEAST($2::int, setup_paid_fcfa + $3::int),
+         setup_first_payment_at = COALESCE(setup_first_payment_at, now()),
+         status = CASE WHEN setup_paid_fcfa + $3 >= $2 AND status = 'trial' THEN 'active' ELSE status END
+     WHERE id = $1 RETURNING setup_paid_fcfa`,
+    [row.subject_id, MERCHANT_SETUP_TOTAL_FCFA, amountFcfa]
+  );
+  return rows[0]?.setup_paid_fcfa ?? null;
+}
 
 /** Initie l'encaissement d'un abonnement compte (marchand) par LIEN de collecte ORZAYAH. */
 export async function initiateSubscription({ subjectType, subjectId, months = 1 }) {
@@ -212,11 +289,13 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
   if (status !== 'SUCCESS') return { status, applied: false, expires_at: null };
 
   const expires = await withTransaction(async (c) => {
-    const locked = (await c.query(`SELECT applied, subject_type, subject_id, device_registration_id, months, amount, reference, idempotency_key FROM orzayah_payments WHERE id = $1 FOR UPDATE`, [paymentId])).rows[0];
+    const locked = (await c.query(`SELECT applied, purpose, subject_type, subject_id, device_registration_id, months, amount, reference, idempotency_key FROM orzayah_payments WHERE id = $1 FOR UPDATE`, [paymentId])).rows[0];
     if (locked.applied) return null;
-    const exp = locked.device_registration_id
-      ? await applyDeviceSubscription(c, locked)
-      : await applySubscription(c, locked);
+    const exp = locked.purpose === 'setup_merchant'
+      ? await applyMerchantSetup(c, locked)
+      : locked.device_registration_id
+        ? await applyDeviceSubscription(c, locked)
+        : await applySubscription(c, locked);
     await c.query(`UPDATE orzayah_payments SET applied = true WHERE id = $1`, [paymentId]);
     return exp;
   });
@@ -227,7 +306,7 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
 /* Rattrapage des paiements en attente                                         */
 /* ------------------------------------------------------------------------- */
 
-const SUB_PURPOSES = ['subscription_merchant', 'subscription_consumer'];
+const SUB_PURPOSES = ['subscription_merchant', 'subscription_consumer', 'setup_merchant'];
 const SYNC_THROTTLE_MS = 15000;
 const lastSync = new Map();
 
