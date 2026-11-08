@@ -104,7 +104,13 @@ const qs = (params = {}) => {
 
 async function uploadTo(path, uri) {
   const f = new FormData();
-  f.append('file', { uri, name: 'photo.jpg', type: 'image/jpeg' });
+  if (Platform.OS === 'web') {
+    // Sur le web (PWA), FormData n'accepte pas { uri } : il faut un vrai Blob.
+    const blob = await (await fetch(uri)).blob();
+    f.append('file', blob, 'photo.jpg');
+  } else {
+    f.append('file', { uri, name: 'photo.jpg', type: 'image/jpeg' });
+  }
   const { key } = await request(path, { method: 'POST', form: f });
   return key;
 }
