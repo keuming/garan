@@ -3,6 +3,7 @@ import { router, Stack } from 'expo-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Banner, Button, Card, Loading, Muted, Screen, Wordmark } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/UpdateBanner';
+import { SetupReminder } from '../../src/components/SetupReminder';
 import { ProtectedHero } from '../../src/components/ProtectedHero';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
@@ -134,6 +135,8 @@ function BusinessDeveloperCard() {
 export default function ConsumerHome() {
   const { consumer } = useAuth();
   const { data, isLoading, isFetching, refetch } = useQuery({ queryKey: ['consumer', 'devices'], queryFn: () => api.get('/consumer/devices') });
+  const setupPending = useQuery({ queryKey: ['consumer', 'setup-pending'], queryFn: () => api.get('/consumer/setup/pending') });
+  const pending = setupPending.data;
   const items = data?.items ?? [];
   const active = items.filter((i) => i.status === 'active');
   const firstName = consumer?.full_name?.split(' ')[0] ?? '';
@@ -154,6 +157,20 @@ export default function ConsumerHome() {
       />
       <Screen refreshing={isFetching && !isLoading} onRefresh={refetch}>
         <UpdateBanner />
+
+        {pending?.count > 0 ? (
+          <SetupReminder
+            storageKey={`consumer-setup-${consumer?.id ?? 'me'}`}
+            title="Mise en service à finaliser"
+            message={
+              pending.count === 1
+                ? `Il reste ${nf(pending.remaining_total_fcfa)} FCFA à régler pour la mise en service de votre appareil.`
+                : `Il reste ${nf(pending.remaining_total_fcfa)} FCFA à régler pour la mise en service de ${pending.count} appareils.`
+            }
+            ctaLabel="Payer"
+            onPay={() => router.push(`/setup?reg=${pending.items[0].registration_id}`)}
+          />
+        ) : null}
 
         {active.length > 0 && unpaid.length === 0 ? (
           <ProtectedHero

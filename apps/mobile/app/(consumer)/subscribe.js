@@ -2,7 +2,7 @@
 import { AppState, Pressable, Text, View } from 'react-native';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banner, Card, Muted } from '../../src/components/ui';
+import { Banner, Button, Card, Muted } from '../../src/components/ui';
 import { OrzayahPay } from '../../src/components/OrzayahPay';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
@@ -50,6 +50,12 @@ export default function Subscribe() {
     queryFn: () => api.get(`/consumer/devices/${reg}/subscription/plan`),
     enabled: Boolean(reg)
   });
+  // État de la mise en service (réglée à part, par versements de 250 FCFA).
+  const { data: setup } = useQuery({
+    queryKey: ['consumer', 'device-setup', reg],
+    queryFn: () => api.get(`/consumer/devices/${reg}/setup/plan`),
+    enabled: Boolean(reg)
+  });
 
   // Rattrape un paiement validé alors que l'app avait été fermée (suivi perdu côté écran).
   useEffect(() => {
@@ -82,30 +88,42 @@ export default function Subscribe() {
     );
   }
 
-  const setup = plan?.is_first ? plan.setup_fcfa : 0;
   const month = plan?.month_fcfa ?? 125;
-  const amountDue = setup + month * months;
+  const amountDue = month * months;
   const amountLabel = plan ? `${nf(amountDue)} FCFA` : '…';
   const deviceName = plan?.device ? `${plan.device.brand ?? ''} ${plan.device.model ?? ''}`.trim() : 'cet appareil';
   const sub = plan
-    ? (plan.is_first
-        ? `Mise en service ${nf(setup)} FCFA (une seule fois) + ${months} mois × ${nf(month)} = ${nf(amountDue)} FCFA. Sécurisation, archivage et sauvegarde des données.`
-        : `${months} mois × ${nf(month)} FCFA = ${nf(amountDue)} FCFA. Sécurisation, archivage et sauvegarde des données.`)
+    ? `${months} mois × ${nf(month)} FCFA = ${nf(amountDue)} FCFA. Sécurisation, archivage et sauvegarde des données.`
     : 'Chargement du montant…';
 
+  // Rappel de mise en service si elle n'est pas entièrement réglée.
+  const setupCta = setup && !setup.complete ? (
+    <View style={{ marginBottom: 12 }}>
+      <Banner tone="warn" title="Mise en service à finaliser">
+        {setup.setup_first_payment_at
+          ? `Il reste ${nf(setup.remaining_fcfa)} FCFA de mise en service (versement ${setup.installments_paid + 1}/${setup.installments_total}).`
+          : `La mise en service de cet appareil (${nf(setup.setup_total_fcfa)} FCFA) n'est pas encore commencée. Payable en ${setup.installments_total} versements de ${nf(setup.installment_fcfa)} FCFA.`}
+      </Banner>
+      <View style={{ marginTop: 10 }}>
+        <Button title={`Payer la mise en service (${nf(setup.installment_fcfa)} FCFA)`} onPress={() => router.push(`/setup?reg=${reg}`)} />
+      </View>
+    </View>
+  ) : null;
+
   const stepper = (
-    <Card>
-      <Muted>{deviceName}</Muted>
-      {plan?.device?.imei1 ? <Muted style={{ color: colors.ink3 }}>IMEI {plan.device.imei1}</Muted> : null}
-      <MonthStepper value={months} onChange={setMonths} />
-      {plan ? (
-        <Muted style={{ color: colors.ink3, marginTop: 8 }}>
-          {plan.is_first
-            ? `Mise en service ${nf(setup)} + abonnement ${months} × ${nf(month)} = ${nf(amountDue)} FCFA`
-            : `Abonnement ${months} × ${nf(month)} = ${nf(amountDue)} FCFA`}
-        </Muted>
-      ) : null}
-    </Card>
+    <>
+      {setupCta}
+      <Card>
+        <Muted>{deviceName}</Muted>
+        {plan?.device?.imei1 ? <Muted style={{ color: colors.ink3 }}>IMEI {plan.device.imei1}</Muted> : null}
+        <MonthStepper value={months} onChange={setMonths} />
+        {plan ? (
+          <Muted style={{ color: colors.ink3, marginTop: 8 }}>
+            Abonnement {months} × {nf(month)} = {nf(amountDue)} FCFA (mise en service facturée à part)
+          </Muted>
+        ) : null}
+      </Card>
+    </>
   );
 
   return (
@@ -115,7 +133,7 @@ export default function Subscribe() {
         title="Abonnement de l’appareil"
         sub={sub}
         amountLabel={amountLabel}
-        headerExtra={isLoading ? null : stepper}
+        headerExtra={isLoading ? setupCta : stepper}
         onStart={() => api.post(`/consumer/devices/${reg}/subscription/orzayah`, { months })}
         onPoll={(id) => api.get(`/consumer/devices/${reg}/subscription/orzayah/${id}`)}
         onSuccess={async () => {

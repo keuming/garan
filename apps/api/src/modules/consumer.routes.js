@@ -54,7 +54,7 @@ async function notifyEmailChange({ oldEmail, newEmail, name }) {
     text: `${hello}\nCette adresse est désormais associée à votre compte gaRAN.`
   }).catch(() => {});
 }
-import { initiateDeviceSubscription, deviceQuote, pollSubscription, syncSubscriptions } from './subscription.service.js';
+import { initiateDeviceSubscription, deviceQuote, deviceSetupState, initiateDeviceSetup, pollSubscription, syncSubscriptions } from './subscription.service.js';
 import { resolvePromoCode, bdSummary, requestBecomeBD } from './bd.service.js';
 import { imeiGaranLookup } from './imei-lookup.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
@@ -387,7 +387,8 @@ consumerRouter.get(
 consumerRouter.get('/devices', requireConsumer, async (req, res) => {
   const { rows } = await query(
     `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
-            r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email, r.subscription_expires_at, r.setup_paid_at, r.purchase_price,
+            r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email, r.subscription_expires_at, r.setup_paid_at,
+            COALESCE(r.setup_paid_fcfa, 0) AS setup_paid_fcfa, r.setup_first_payment_at, r.purchase_price,
             d.id AS device_id, d.imei1, d.imei2, d.status AS device_status, d.color, d.storage_gb,
             COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
      FROM device_registrations r
@@ -565,6 +566,67 @@ consumerRouter.post('/subscription/sync', requireConsumer, async (req, res) => {
   const r = await syncSubscriptions({ subjectType: 'consumer', subjectId: req.auth.sub, force: true });
   if (r.applied) await audit(req, 'consumer.subscription_activated', { entity: 'consumer', entityId: req.auth.sub });
   res.json({ ...r, consumer: await loadConsumer(req.auth.sub) });
+});
+
+/* ---- Mise en service d'un appareil, payable par versements (4 × 250 FCFA / 30 jours) ---- */
+
+/** État de la mise en service d'un appareil (total, payé, reste, prochain versement, échéance). */
+consumerRouter.get(
+  '/devices/:reg/setup/plan',
+  requireConsumer,
+  validate({ params: z.object({ reg: zUuid }) }),
+  async (req, res) => {
+    res.json(await deviceSetupState({ registrationId: req.v.params.reg, consumerId: req.auth.sub }));
+  }
+);
+
+/** Initie un versement de mise en service (lien ORZAYAH). La 1re tranche active le compte. */
+consumerRouter.post(
+  '/devices/:reg/setup/orzayah',
+  requireConsumer,
+  validate({ params: z.object({ reg: zUuid }) }),
+  async (req, res) => {
+    const r = await initiateDeviceSetup({ consumerId: req.auth.sub, registrationId: req.v.params.reg });
+    await audit(req, 'consumer.setup_initiated', { entity: 'orzayah_payment', entityId: r.payment_id, meta: { registration_id: req.v.params.reg, installment_no: r.installment_no } });
+    res.status(201).json(r);
+  }
+);
+
+/** Relit le statut d'un versement de mise en service d'appareil. */
+consumerRouter.get(
+  '/devices/:reg/setup/orzayah/:id',
+  requireConsumer,
+  validate({ params: z.object({ reg: zUuid, id: zUuid }) }),
+  async (req, res) => {
+    const r = await pollSubscription(req.v.params.id, { subjectType: 'consumer', subjectId: req.auth.sub });
+    res.json({ ...r, setup: await deviceSetupState({ registrationId: req.v.params.reg, consumerId: req.auth.sub }) });
+  }
+);
+
+/** Synthèse des mises en service à finir (pour le rappel sur l'accueil). */
+consumerRouter.get('/setup/pending', requireConsumer, async (req, res) => {
+  const { rows } = await query(
+    `SELECT r.id AS registration_id, r.setup_paid_fcfa, r.setup_first_payment_at,
+            d.imei1, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
+     FROM device_registrations r
+     JOIN devices d ON d.id = r.device_id
+     LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+     WHERE r.consumer_id = $1 AND r.status = 'active' AND COALESCE(r.setup_paid_fcfa, 0) < 1000
+     ORDER BY r.setup_first_payment_at NULLS FIRST, r.created_at`,
+    [req.auth.sub]
+  );
+  const items = rows.map((r) => ({
+    registration_id: r.registration_id,
+    device: { imei1: r.imei1, brand: r.brand, model: r.model },
+    setup_paid_fcfa: r.setup_paid_fcfa ?? 0,
+    remaining_fcfa: Math.max(0, 1000 - (r.setup_paid_fcfa ?? 0)),
+    started: Boolean(r.setup_first_payment_at)
+  }));
+  res.json({
+    count: items.length,
+    remaining_total_fcfa: items.reduce((s, i) => s + i.remaining_fcfa, 0),
+    items
+  });
 });
 
 /* -------------------- Business Développeur (parrainage) -------------------- */

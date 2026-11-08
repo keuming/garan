@@ -85,10 +85,16 @@ async function activeBdId(c, column, id) {
 }
 
 /** Commissions d'un usager parrainé : 250 à la 1re mise en service + 25 par mois d'abonnement. */
-export async function creditConsumerReferral(c, { consumerId, firstSetup, months, source }) {
+/**
+ * Crédite les commissions BD liées à un usager parrainé.
+ * - setup=true : commission « mise en service » (une seule fois, à la mise en service complète).
+ * - months>0  : commission « abonnement » proportionnelle aux mois réglés.
+ * Les deux natures sont désormais indépendantes (mise en service et abonnement payés séparément).
+ */
+export async function creditConsumerReferral(c, { consumerId, setup = false, months = 0, source }) {
   const bdId = await activeBdId(c, 'consumer', consumerId);
   if (!bdId) return;
-  if (firstSetup) {
+  if (setup) {
     await c.query(
       `INSERT INTO bd_commissions (business_developer_id, referred_kind, referred_id, kind, amount_fcfa, source)
        VALUES ($1, 'consumer', $2, 'setup_consumer', $3, $4)
@@ -96,12 +102,14 @@ export async function creditConsumerReferral(c, { consumerId, firstSetup, months
       [bdId, consumerId, BD_SETUP_CONSUMER_FCFA, source ?? null]
     );
   }
-  const m = Math.max(1, Number(months) || 1);
-  await c.query(
-    `INSERT INTO bd_commissions (business_developer_id, referred_kind, referred_id, kind, amount_fcfa, source)
-     VALUES ($1, 'consumer', $2, 'subscription_consumer', $3, $4)`,
-    [bdId, consumerId, BD_SUBSCRIPTION_CONSUMER_FCFA * m, source ?? null]
-  );
+  const m = Number(months) || 0;
+  if (m > 0) {
+    await c.query(
+      `INSERT INTO bd_commissions (business_developer_id, referred_kind, referred_id, kind, amount_fcfa, source)
+       VALUES ($1, 'consumer', $2, 'subscription_consumer', $3, $4)`,
+      [bdId, consumerId, BD_SUBSCRIPTION_CONSUMER_FCFA * m, source ?? null]
+    );
+  }
 }
 
 /** Commission d'un marchand parrainé : 2000 à l'activation complète du compte (une fois). */

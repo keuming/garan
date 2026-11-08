@@ -117,25 +117,32 @@ adminRouter.get('/dashboard', requireAdmin(...ALL), async (_req, res) => {
       (SELECT count(*)::int FROM security_alerts WHERE status = 'open') AS alerts_open,
       (SELECT count(*)::int FROM business_developers WHERE status = 'pending') AS bd_requests_pending,
       (SELECT COALESCE(sum(amount), 0) FROM subscription_payments WHERE paid_at >= date_trunc('month', now())) AS revenue_month,
-      (SELECT count(*)::int FROM device_registrations WHERE setup_paid_at IS NOT NULL) AS setup_consumer_count,
+      (SELECT COALESCE(sum(months * 125), 0)::bigint FROM orzayah_payments
+         WHERE purpose = 'subscription_consumer' AND COALESCE(applied, false)) AS sub_consumer_month_fcfa,
       (SELECT COALESCE(sum(amount), 0)::bigint FROM orzayah_payments
-         WHERE purpose = 'subscription_consumer' AND COALESCE(applied, false)) AS consumer_collected_centimes,
+         WHERE purpose = 'subscription_consumer' AND COALESCE(applied, false)) AS sub_consumer_total_centimes,
+      (SELECT COALESCE(sum(amount), 0)::bigint FROM orzayah_payments
+         WHERE purpose = 'setup_consumer' AND COALESCE(applied, false)) AS setup_consumer_centimes,
       (SELECT COALESCE(sum(amount), 0)::bigint FROM orzayah_payments
          WHERE purpose = 'setup_merchant' AND COALESCE(applied, false)) AS setup_merchant_centimes,
       (SELECT COALESCE(sum(amount), 0)::bigint FROM orzayah_payments
          WHERE purpose = 'subscription_merchant' AND COALESCE(applied, false)) AS sub_merchant_centimes
   `);
   // Soldes encaissés, ventilés par nature de frais et par type de compte.
-  // Pour l'usager, le 1er paiement d'un appareil regroupe mise en service (1000 FCFA) + mois ;
-  // on isole donc la part mise en service via le nombre d'appareils dont le setup est payé.
-  const SETUP_CONSUMER_FCFA = 1000;
+  // La part « abonnement mensuel » usager est calculée directement (months × 125 FCFA),
+  // ce qui est exact que la mise en service ait été payée groupée (ancien modèle) ou
+  // par versements dédiés (purpose 'setup_consumer'). La part « mise en service » usager
+  // = versements dédiés + part mise en service incluse dans les anciens paiements groupés
+  // (total subscription_consumer − part mensuelle).
   const d0 = rows[0];
-  const setupConsumerFcfa = Number(d0.setup_consumer_count || 0) * SETUP_CONSUMER_FCFA;
-  const consumerCollectedFcfa = Math.round(Number(d0.consumer_collected_centimes || 0) / 100);
+  const subConsumerMonthFcfa = Number(d0.sub_consumer_month_fcfa || 0);
+  const subConsumerTotalFcfa = Math.round(Number(d0.sub_consumer_total_centimes || 0) / 100);
+  const setupConsumerBundledFcfa = Math.max(0, subConsumerTotalFcfa - subConsumerMonthFcfa);
+  const setupConsumerStandaloneFcfa = Math.round(Number(d0.setup_consumer_centimes || 0) / 100);
   const balances = {
-    setup_consumer_fcfa: setupConsumerFcfa,
+    setup_consumer_fcfa: setupConsumerBundledFcfa + setupConsumerStandaloneFcfa,
     setup_merchant_fcfa: Math.round(Number(d0.setup_merchant_centimes || 0) / 100),
-    subscription_consumer_fcfa: Math.max(0, consumerCollectedFcfa - setupConsumerFcfa),
+    subscription_consumer_fcfa: subConsumerMonthFcfa,
     subscription_merchant_fcfa: Math.round(Number(d0.sub_merchant_centimes || 0) / 100)
   };
   const daily = await query(`

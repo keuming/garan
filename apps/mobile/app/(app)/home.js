@@ -3,6 +3,7 @@ import { router, Stack } from 'expo-router';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Card, Muted, Screen, Wordmark } from '../../src/components/ui';
 import { UpdateBanner } from '../../src/components/UpdateBanner';
+import { SetupReminder } from '../../src/components/SetupReminder';
 import { ProtectedHero } from '../../src/components/ProtectedHero';
 import { BalanceCard } from '../../src/components/BalanceCard';
 import { api, shopPublicUrl } from '../../src/lib/api';
@@ -110,6 +111,28 @@ function SubscriptionCard() {
   );
 }
 
+/** Rappel du reliquat de mise en service marchand (10 000 FCFA, 4 × 2 500), sur l'accueil. */
+function MerchantSetupReminder() {
+  const { user } = useAuth();
+  const { data: setup } = useQuery({ queryKey: ['org', 'setup'], queryFn: () => api.get('/org/setup/plan') });
+  if (!setup || setup.complete) return null;
+  const left = num(setup.remaining_fcfa);
+  return (
+    <SetupReminder
+      storageKey={`org-setup-${user?.organization?.id ?? 'org'}`}
+      title="Mise en service à finaliser"
+      message={
+        setup.setup_first_payment_at
+          ? `Il reste ${left} FCFA de mise en service (versement ${setup.installments_paid + 1}/${setup.installments_total}).`
+          : `Mise en service marchand : ${num(setup.setup_total_fcfa)} FCFA, payable en ${setup.installments_total} versements de ${num(setup.installment_fcfa)} FCFA.`
+      }
+      ctaLabel="Payer"
+      overdue={setup.overdue}
+      onPay={() => router.push('/subscribe-setup')}
+    />
+  );
+}
+
 /* ------------------------- Super marchand ------------------------- */
 function SupervisorHome() {
   const { user } = useAuth();
@@ -119,6 +142,7 @@ function SupervisorHome() {
     <Screen refreshing={ov.isFetching} onRefresh={ov.refetch}>
       <UpdateBanner />
       <SubscriptionCard />
+      <MerchantSetupReminder />
       <Card style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
         <Kpi label="Sous-marchands" value={num(ov.data?.sub_merchants)} />
         <Kpi label="Ventes réseau (mois)" value={num(ov.data?.sale?.count)} hint={fcfa(ov.data?.sale?.amount)} />
@@ -150,6 +174,7 @@ function MerchantHome() {
     <Screen refreshing={refreshing} onRefresh={refetch}>
       <UpdateBanner />
       <SubscriptionCard />
+      <MerchantSetupReminder />
 
       <BalanceCard />
 

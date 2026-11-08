@@ -13,6 +13,12 @@ import { logger } from '../logger.js';
 export const PLAN_FCFA = { organization: 1000, consumer: 125 };
 export const SETUP_FCFA = { organization: 10000, consumer: 1000 };
 
+/* Mise en service USAGER par versements : 1 000 FCFA réglés en 4 × 250 FCFA sur 30 jours.
+   Dès la 1re tranche payée, l'appareil est « en service » ; le reliquat est rappelé. */
+export const CONSUMER_SETUP_TOTAL_FCFA = SETUP_FCFA.consumer; // 1000
+export const CONSUMER_SETUP_INSTALLMENT_FCFA = 250;
+export const CONSUMER_SETUP_WINDOW_DAYS = 30;
+
 /* ------------------------------------------------------------------------- */
 /* Abonnement PAR APPAREIL (usager)                                            */
 /* ------------------------------------------------------------------------- */
@@ -33,10 +39,11 @@ export async function deviceQuote({ registrationId, consumerId = null, months = 
   );
   const r = rows[0];
   if (!r) throw notFound('Appareil introuvable');
+  // La mise en service (1 000 FCFA) est désormais réglée à part, par versements.
+  // L'abonnement mensuel seul est facturé ici : 125 FCFA × N mois.
   const isFirst = !r.setup_paid_at;
   const monthFcfa = PLAN_FCFA.consumer;
-  const setupFcfa = isFirst ? SETUP_FCFA.consumer : 0;
-  const amountDueFcfa = setupFcfa + monthFcfa * months;
+  const amountDueFcfa = monthFcfa * months;
   return {
     registration_id: r.id,
     month_fcfa: monthFcfa,
@@ -61,7 +68,7 @@ export async function initiateDeviceSubscription({ consumerId, registrationId, m
   const amountCentimes = amountFcfa * 100;
   const idempotencyKey = `subdev-${crypto.randomUUID()}`;
   const label = 'Abonnement gaRAN';
-  const description = quote.is_first ? `${label} — mise en service + ${months} mois` : `${label} — ${months} mois`;
+  const description = `${label} — ${months} mois`;
 
   const { rows } = await query(
     `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, device_registration_id, amount, months, operator, status)
@@ -89,20 +96,103 @@ export async function initiateDeviceSubscription({ consumerId, registrationId, m
   }
 }
 
-/** Crédite l'abonnement sur l'APPAREIL : prolonge l'échéance et marque la mise en service payée. */
+/** Crédite l'abonnement mensuel sur l'APPAREIL : prolonge l'échéance (mise en service à part). */
 async function applyDeviceSubscription(c, row) {
   const months = row.months || 1;
-  const before = (await c.query(`SELECT setup_paid_at FROM device_registrations WHERE id = $1`, [row.device_registration_id])).rows[0];
-  const firstSetup = Boolean(before && !before.setup_paid_at);
   const { rows } = await c.query(
     `UPDATE device_registrations
-     SET subscription_expires_at = GREATEST(now(), COALESCE(subscription_expires_at, now())) + ($2 || ' months')::interval,
-         setup_paid_at = COALESCE(setup_paid_at, now())
+     SET subscription_expires_at = GREATEST(now(), COALESCE(subscription_expires_at, now())) + ($2 || ' months')::interval
      WHERE id = $1 RETURNING subscription_expires_at`,
     [row.device_registration_id, months]
   );
-  await creditConsumerReferral(c, { consumerId: row.subject_id, firstSetup, months, source: row.id ?? row.idempotency_key });
+  await creditConsumerReferral(c, { consumerId: row.subject_id, months, source: row.id ?? row.idempotency_key });
   return rows[0]?.subscription_expires_at ?? null;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Mise en service USAGER par versements (1 000 FCFA, 4 × 250, 30 jours)       */
+/* ------------------------------------------------------------------------- */
+
+/** État de la mise en service d'un appareil : total, payé, reste, prochain versement, échéance. */
+export async function deviceSetupState({ registrationId, consumerId = null }) {
+  const params = [registrationId];
+  let ownerClause = '';
+  if (consumerId) { params.push(consumerId); ownerClause = ' AND consumer_id = $2'; }
+  const { rows } = await query(
+    `SELECT id, setup_paid_fcfa, setup_first_payment_at, setup_paid_at FROM device_registrations WHERE id = $1${ownerClause}`,
+    params
+  );
+  const r = rows[0];
+  if (!r) throw notFound('Appareil introuvable');
+  const paid = r.setup_paid_fcfa ?? 0;
+  const total = CONSUMER_SETUP_TOTAL_FCFA;
+  const remaining = Math.max(0, total - paid);
+  const complete = remaining === 0;
+  const dueAt = r.setup_first_payment_at
+    ? new Date(new Date(r.setup_first_payment_at).getTime() + CONSUMER_SETUP_WINDOW_DAYS * 86400000)
+    : null;
+  return {
+    registration_id: r.id,
+    setup_total_fcfa: total,
+    setup_paid_fcfa: paid,
+    remaining_fcfa: remaining,
+    installment_fcfa: complete ? 0 : Math.min(CONSUMER_SETUP_INSTALLMENT_FCFA, remaining),
+    installments_total: Math.ceil(total / CONSUMER_SETUP_INSTALLMENT_FCFA),
+    installments_paid: Math.floor(paid / CONSUMER_SETUP_INSTALLMENT_FCFA),
+    complete,
+    service_active: Boolean(r.setup_first_payment_at), // compte activé dès la 1re tranche
+    first_payment_at: r.setup_first_payment_at ?? null,
+    due_at: dueAt,
+    overdue: Boolean(dueAt && !complete && Date.now() > dueAt.getTime()),
+    window_days: CONSUMER_SETUP_WINDOW_DAYS
+  };
+}
+
+/** Initie un versement de mise en service d'un appareil (250 FCFA, ou le reste) par lien ORZAYAH. */
+export async function initiateDeviceSetup({ consumerId, registrationId }) {
+  const state = await deviceSetupState({ registrationId, consumerId });
+  if (state.complete) throw badRequest('SETUP_DONE', 'La mise en service de cet appareil est déjà entièrement réglée.');
+  const amountFcfa = state.installment_fcfa;
+  const amountCentimes = amountFcfa * 100;
+  const idempotencyKey = `setup-dev-${crypto.randomUUID()}`;
+  const nextNo = state.installments_paid + 1;
+  const description = `gaRAN — mise en service (versement ${nextNo}/${state.installments_total}, ${amountFcfa} FCFA)`;
+
+  const { rows } = await query(
+    `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, device_registration_id, amount, months, operator, status)
+     VALUES ($1,'setup_consumer','consumer',$2,$3,$4,0,'LINK','INITIATED') RETURNING id`,
+    [idempotencyKey, consumerId, registrationId, amountCentimes]
+  );
+  const paymentId = rows[0].id;
+  try {
+    const link = await createPaymentLink({ amount: amountCentimes, description, idempotencyKey });
+    const url = link.url ?? payUrl(link.slug);
+    await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [paymentId, link.slug]);
+    return { payment_id: paymentId, status: 'PENDING', amount_fcfa: amountFcfa, installment_no: nextNo, payment_url: url, next_action: { type: 'REDIRECT', url } };
+  } catch (err) {
+    await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
+    throw err;
+  }
+}
+
+/** Crédite un versement de mise en service sur l'appareil (plafonné à 1 000). Active dès la 1re tranche. */
+async function applyDeviceSetup(c, row) {
+  const amountFcfa = Math.round(Number(row.amount) / 100);
+  const before = (await c.query(`SELECT setup_paid_fcfa FROM device_registrations WHERE id = $1`, [row.device_registration_id])).rows[0];
+  const { rows } = await c.query(
+    `UPDATE device_registrations
+     SET setup_paid_fcfa = LEAST($2::int, setup_paid_fcfa + $3::int),
+         setup_first_payment_at = COALESCE(setup_first_payment_at, now()),
+         setup_paid_at = CASE WHEN setup_paid_fcfa + $3 >= $2 THEN COALESCE(setup_paid_at, now()) ELSE setup_paid_at END
+     WHERE id = $1 RETURNING setup_paid_fcfa`,
+    [row.device_registration_id, CONSUMER_SETUP_TOTAL_FCFA, amountFcfa]
+  );
+  const after = rows[0]?.setup_paid_fcfa ?? 0;
+  // Commission BD « mise en service » créditée une seule fois, à la mise en service complète.
+  if ((before?.setup_paid_fcfa ?? 0) < CONSUMER_SETUP_TOTAL_FCFA && after >= CONSUMER_SETUP_TOTAL_FCFA) {
+    await creditConsumerReferral(c, { consumerId: row.subject_id, setup: true, source: row.id ?? row.idempotency_key });
+  }
+  return after;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -302,9 +392,11 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
     if (locked.applied) return null;
     const exp = locked.purpose === 'setup_merchant'
       ? await applyMerchantSetup(c, locked)
-      : locked.device_registration_id
-        ? await applyDeviceSubscription(c, locked)
-        : await applySubscription(c, locked);
+      : locked.purpose === 'setup_consumer'
+        ? await applyDeviceSetup(c, locked)
+        : locked.device_registration_id
+          ? await applyDeviceSubscription(c, locked)
+          : await applySubscription(c, locked);
     await c.query(`UPDATE orzayah_payments SET applied = true WHERE id = $1`, [paymentId]);
     return exp;
   });
@@ -315,7 +407,7 @@ export async function pollSubscription(paymentId, { subjectType, subjectId }) {
 /* Rattrapage des paiements en attente                                         */
 /* ------------------------------------------------------------------------- */
 
-const SUB_PURPOSES = ['subscription_merchant', 'subscription_consumer', 'setup_merchant'];
+const SUB_PURPOSES = ['subscription_merchant', 'subscription_consumer', 'setup_merchant', 'setup_consumer'];
 const SYNC_THROTTLE_MS = 15000;
 const lastSync = new Map();
 

@@ -334,16 +334,18 @@ async function activateGaranForBuyer(c, { person, deviceId, txId, orgId, shopId,
     await c.query(
       `UPDATE device_registrations
        SET subscription_expires_at = GREATEST(now(), COALESCE(subscription_expires_at, now())) + interval '1 month',
-           setup_paid_at = COALESCE(setup_paid_at, now())
+           setup_paid_at = COALESCE(setup_paid_at, now()),
+           setup_paid_fcfa = GREATEST(setup_paid_fcfa, $2::int),
+           setup_first_payment_at = COALESCE(setup_first_payment_at, now())
        WHERE id = $1`,
-      [existing.id]
+      [existing.id, SETUP_FCFA.consumer]
     );
     registrationId = existing.id;
   } else {
     const reg = (await c.query(
-      `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, purchase_price, merchant_name, receipt_number, account_email, setup_paid_at, subscription_expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now() + interval '1 month') RETURNING id`,
-      [deviceId, consumer.id, purchasePlace, price ?? null, org?.name ?? null, tx?.receipt_number ?? null, person.email ?? null]
+      `INSERT INTO device_registrations (device_id, consumer_id, purchase_place, purchase_price, merchant_name, receipt_number, account_email, setup_paid_at, setup_paid_fcfa, setup_first_payment_at, subscription_expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, now(), now() + interval '1 month') RETURNING id`,
+      [deviceId, consumer.id, purchasePlace, price ?? null, org?.name ?? null, tx?.receipt_number ?? null, person.email ?? null, SETUP_FCFA.consumer]
     )).rows[0];
     registrationId = reg.id;
   }
