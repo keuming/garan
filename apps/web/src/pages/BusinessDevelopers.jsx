@@ -42,6 +42,8 @@ export function BusinessDevelopers() {
         </div>
       </div>
 
+      <PayoutRequestsPanel />
+
       <div className="card">
         <div className="actions" style={{ justifyContent: 'flex-start', flexWrap: 'wrap', marginBottom: 12 }}>
           {FILTERS.map((f) => (
@@ -95,6 +97,48 @@ export function BusinessDevelopers() {
   );
 }
 
+function PayoutRequestsPanel() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['bd-payout-requests'],
+    queryFn: () => api.get('/admin/bd/payout-requests', { status: 'pending' })
+  });
+  const decide = useMutation({
+    mutationFn: ({ reqId, action }) => api.post(`/admin/bd/payout-requests/${reqId}/decide`, { action }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['bd-payout-requests'] }); qc.invalidateQueries({ queryKey: ['bd'] }); }
+  });
+  const items = data?.items ?? [];
+  if (items.length === 0) return null;
+  return (
+    <div className="card" style={{ marginBottom: 16, borderLeft: '4px solid var(--warn, #A35C00)' }}>
+      <h2 style={{ marginTop: 0 }}>Demandes de reversement en attente ({items.length})</h2>
+      <ErrorBox error={decide.error} />
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Nom</th><th>Code</th><th>Montant</th><th>Destination</th><th>Demandé le</th><th></th></tr></thead>
+          <tbody>
+            {items.map((r) => (
+              <tr key={r.id}>
+                <td>{r.full_name}</td>
+                <td className="mono small">{r.promo_code || '—'}</td>
+                <td><strong>{fcfa(r.amount_fcfa)}</strong></td>
+                <td className="small">{r.method === 'orzayah' ? `ORZAYAH ${r.orzayah_account ?? ''}` : `Mobile Money ${r.mobile_money_number ?? ''}`}</td>
+                <td className="small">{date(r.requested_at)}</td>
+                <td>
+                  <div className="actions" style={{ justifyContent: 'flex-start' }}>
+                    <button className="btn small" type="button" disabled={decide.isPending} onClick={() => decide.mutate({ reqId: r.id, action: 'pay' })}>Marquer payé</button>
+                    <button className="btn secondary small" type="button" disabled={decide.isPending} onClick={() => decide.mutate({ reqId: r.id, action: 'reject' })}>Refuser</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function DetailModal({ id, onClose }) {
   const qc = useQueryClient();
   const [payout, setPayout] = useState(null); // { method, reference, note }
@@ -117,6 +161,11 @@ function DetailModal({ id, onClose }) {
     onSuccess: () => { setPayout(null); refresh(); qc.invalidateQueries({ queryKey: ['bd', 'detail', id] }); }
   });
 
+  const decideRequest = useMutation({
+    mutationFn: ({ reqId, action }) => api.post(`/admin/bd/payout-requests/${reqId}/decide`, { action }),
+    onSuccess: () => { refresh(); qc.invalidateQueries({ queryKey: ['bd', 'detail', id] }); qc.invalidateQueries({ queryKey: ['bd-payout-requests'] }); }
+  });
+
   return (
     <Modal title="Business Développeur" onClose={onClose}>
       {isLoading ? <div className="empty">Chargement…</div> : error ? <ErrorBox error={error} /> : bd ? (
@@ -135,7 +184,25 @@ function DetailModal({ id, onClose }) {
             <Stat label="Reste dû" value={fcfa(bd.due_fcfa)} strong />
           </div>
 
-          <ErrorBox error={decide.error || doPayout.error} />
+          <ErrorBox error={decide.error || doPayout.error || decideRequest.error} />
+
+          {bd.payout_requests?.some((r) => r.status === 'pending') ? (
+            <div className="card" style={{ background: 'var(--warn-bg, #FFF4E2)' }}>
+              <h3 style={{ marginTop: 0, marginBottom: 8 }}>Demandes de reversement en attente</h3>
+              {bd.payout_requests.filter((r) => r.status === 'pending').map((r) => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <div>
+                    <strong>{fcfa(r.amount_fcfa)}</strong>
+                    <span className="muted small"> · {r.method === 'orzayah' ? `Compte ORZAYAH ${r.orzayah_account ?? ''}` : `Mobile Money ${r.mobile_money_number ?? ''}`} · {date(r.requested_at)}</span>
+                  </div>
+                  <div className="actions" style={{ justifyContent: 'flex-start' }}>
+                    <button className="btn small" type="button" disabled={decideRequest.isPending} onClick={() => decideRequest.mutate({ reqId: r.id, action: 'pay' })}>Marquer payé ({fcfa(r.amount_fcfa)})</button>
+                    <button className="btn secondary small" type="button" disabled={decideRequest.isPending} onClick={() => decideRequest.mutate({ reqId: r.id, action: 'reject' })}>Refuser</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="actions" style={{ justifyContent: 'flex-start', flexWrap: 'wrap' }}>
             {bd.status === 'pending' ? (

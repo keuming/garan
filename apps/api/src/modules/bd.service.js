@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { query, withTransaction } from '../db.js';
 import { badRequest, notFound } from '../lib/errors.js';
+import { config } from '../config.js';
 
 /* Barème des commissions Business Développeur (FCFA). */
 export const BD_SETUP_CONSUMER_FCFA = 250; // usager parrainé : mise en service (une fois)
@@ -29,23 +30,124 @@ export async function resolvePromoCode(code) {
   return rows[0]?.id ?? null;
 }
 
-/** Statut BD d'un usager (+ code promo + stats si actif), pour l'accueil. */
+/** Soldes d'un BD, ventilés usager / marchand (gagné, dû, reversé). */
+async function bdBalances(bdId) {
+  const s = (await query(
+    `SELECT
+       (SELECT count(*) FROM consumers WHERE referred_by_bd_id = $1)::int AS usagers,
+       (SELECT count(*) FROM organizations WHERE referred_by_bd_id = $1)::int AS marchands,
+       COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1), 0)::int AS total_fcfa,
+       COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1 AND payout_id IS NULL), 0)::int AS due_fcfa,
+       COALESCE((SELECT sum(amount_fcfa) FROM bd_payouts WHERE business_developer_id = $1), 0)::int AS paid_fcfa,
+       -- Gains « usager » (mise en service + abonnements des usagers parrainés)
+       COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1 AND referred_kind = 'consumer'), 0)::int AS consumer_total_fcfa,
+       COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1 AND referred_kind = 'consumer' AND payout_id IS NULL), 0)::int AS consumer_due_fcfa,
+       -- Gains « marchand »
+       COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1 AND referred_kind = 'organization'), 0)::int AS merchant_total_fcfa,
+       COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1 AND referred_kind = 'organization' AND payout_id IS NULL), 0)::int AS merchant_due_fcfa`,
+    [bdId]
+  )).rows[0];
+  return s;
+}
+
+/** Statut BD d'un usager (+ code promo, soldes ventilés, compte ORZAYAH, demande en cours), pour l'accueil. */
 export async function bdSummary(consumerId) {
-  const bd = (await query(`SELECT id, status, promo_code FROM business_developers WHERE consumer_id = $1`, [consumerId])).rows[0];
-  if (!bd) return { status: 'none' };
+  const bd = (await query(
+    `SELECT id, status, promo_code, orzayah_account FROM business_developers WHERE consumer_id = $1`,
+    [consumerId]
+  )).rows[0];
+  if (!bd) return { status: 'none', orzayah_signup_url: config.ORZAYAH_SIGNUP_URL };
   let stats = null;
+  let pendingRequest = null;
   if (bd.status === 'active') {
-    const s = (await query(
-      `SELECT
-         (SELECT count(*) FROM consumers WHERE referred_by_bd_id = $1)::int AS usagers,
-         (SELECT count(*) FROM organizations WHERE referred_by_bd_id = $1)::int AS marchands,
-         COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1), 0)::int AS total_fcfa,
-         COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1 AND payout_id IS NULL), 0)::int AS due_fcfa`,
+    stats = await bdBalances(bd.id);
+    pendingRequest = (await query(
+      `SELECT id, amount_fcfa, method, mobile_money_number, requested_at FROM bd_payout_requests
+       WHERE business_developer_id = $1 AND status = 'pending' ORDER BY requested_at DESC LIMIT 1`,
       [bd.id]
-    )).rows[0];
-    stats = s;
+    )).rows[0] ?? null;
   }
-  return { status: bd.status, promo_code: bd.promo_code, stats };
+  return {
+    status: bd.status,
+    promo_code: bd.promo_code,
+    orzayah_account: bd.orzayah_account ?? null,
+    orzayah_signup_url: config.ORZAYAH_SIGNUP_URL,
+    pending_request: pendingRequest,
+    stats
+  };
+}
+
+/** Tableau de bord complet du BD (soldes + historique des gains + reversements). */
+export async function bdDashboard(consumerId) {
+  const bd = (await query(
+    `SELECT id, status, promo_code, orzayah_account, payout_mobile_money FROM business_developers WHERE consumer_id = $1`,
+    [consumerId]
+  )).rows[0];
+  if (!bd) throw notFound('Vous n’êtes pas Business Développeur.');
+  if (bd.status !== 'active') return { status: bd.status, promo_code: bd.promo_code, orzayah_signup_url: config.ORZAYAH_SIGNUP_URL };
+  const stats = await bdBalances(bd.id);
+  const commissions = (await query(
+    `SELECT id, kind, referred_kind, amount_fcfa, created_at, payout_id FROM bd_commissions
+     WHERE business_developer_id = $1 ORDER BY created_at DESC LIMIT 100`,
+    [bd.id]
+  )).rows;
+  const payouts = (await query(
+    `SELECT amount_fcfa, method, reference, created_at FROM bd_payouts
+     WHERE business_developer_id = $1 ORDER BY created_at DESC LIMIT 50`,
+    [bd.id]
+  )).rows;
+  const requests = (await query(
+    `SELECT id, amount_fcfa, method, mobile_money_number, status, requested_at, decided_at FROM bd_payout_requests
+     WHERE business_developer_id = $1 ORDER BY requested_at DESC LIMIT 20`,
+    [bd.id]
+  )).rows;
+  return {
+    status: bd.status,
+    promo_code: bd.promo_code,
+    orzayah_account: bd.orzayah_account ?? null,
+    payout_mobile_money: bd.payout_mobile_money ?? null,
+    orzayah_signup_url: config.ORZAYAH_SIGNUP_URL,
+    stats,
+    pending_request: requests.find((r) => r.status === 'pending') ?? null,
+    commissions,
+    payouts,
+    requests
+  };
+}
+
+/** Rattache (ou met à jour) le compte ORZAYAH du BD pour gérer ses gains de façon autonome. */
+export async function setBdOrzayahAccount(consumerId, { orzayah_account }) {
+  const bd = (await query(`SELECT id FROM business_developers WHERE consumer_id = $1 AND status = 'active'`, [consumerId])).rows[0];
+  if (!bd) throw badRequest('BD_INACTIVE', 'Compte Business Développeur introuvable ou inactif.');
+  const value = (orzayah_account ?? '').trim() || null;
+  await query(`UPDATE business_developers SET orzayah_account = $2 WHERE id = $1`, [bd.id, value]);
+  return { orzayah_account: value };
+}
+
+/** Le BD demande le reversement de son dû (Mobile Money ou vers son compte ORZAYAH). */
+export async function requestBdPayout(consumerId, { method = 'mobile_money', mobile_money_number = null }) {
+  const bd = (await query(`SELECT id, orzayah_account FROM business_developers WHERE consumer_id = $1 AND status = 'active'`, [consumerId])).rows[0];
+  if (!bd) throw badRequest('BD_INACTIVE', 'Compte Business Développeur introuvable ou inactif.');
+  const m = method === 'orzayah' ? 'orzayah' : 'mobile_money';
+  const momo = (mobile_money_number ?? '').trim() || null;
+  if (m === 'mobile_money' && !momo) throw badRequest('MOMO_REQUIRED', 'Indiquez le numéro Mobile Money à créditer.');
+  if (m === 'orzayah' && !bd.orzayah_account) throw badRequest('ORZAYAH_REQUIRED', 'Rattachez d’abord votre compte ORZAYAH.');
+  return withTransaction(async (c) => {
+    const pending = (await c.query(`SELECT 1 FROM bd_payout_requests WHERE business_developer_id = $1 AND status = 'pending'`, [bd.id])).rowCount;
+    if (pending) throw badRequest('REQUEST_PENDING', 'Une demande de reversement est déjà en cours de traitement.');
+    const due = (await c.query(
+      `SELECT COALESCE(sum(amount_fcfa), 0)::int AS due FROM bd_commissions WHERE business_developer_id = $1 AND payout_id IS NULL`,
+      [bd.id]
+    )).rows[0].due;
+    if (due <= 0) throw badRequest('NO_DUE', 'Aucun montant disponible à reverser pour le moment.');
+    const row = (await c.query(
+      `INSERT INTO bd_payout_requests (business_developer_id, amount_fcfa, method, mobile_money_number, orzayah_account)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, amount_fcfa, method, mobile_money_number, status, requested_at`,
+      [bd.id, due, m, momo, m === 'orzayah' ? bd.orzayah_account : null]
+    )).rows[0];
+    if (momo) await c.query(`UPDATE business_developers SET payout_mobile_money = $2 WHERE id = $1`, [bd.id, momo]);
+    return row;
+  });
 }
 
 /** Demande à devenir BD. Prérequis : appareil actif + mise en service payée + abonnement en cours. */
@@ -168,6 +270,11 @@ export async function businessDeveloperDetail(bdId) {
      WHERE business_developer_id = $1 ORDER BY created_at DESC LIMIT 50`,
     [bdId]
   )).rows;
+  const payoutRequests = (await query(
+    `SELECT id, amount_fcfa, method, mobile_money_number, orzayah_account, status, requested_at, decided_at FROM bd_payout_requests
+     WHERE business_developer_id = $1 ORDER BY requested_at DESC LIMIT 20`,
+    [bdId]
+  )).rows;
   const totals = (await query(
     `SELECT
        COALESCE((SELECT sum(amount_fcfa) FROM bd_commissions WHERE business_developer_id = $1), 0)::int AS total_fcfa,
@@ -177,7 +284,7 @@ export async function businessDeveloperDetail(bdId) {
        (SELECT count(*) FROM organizations WHERE referred_by_bd_id = $1)::int AS marchands`,
     [bdId]
   )).rows[0];
-  return { ...bd, ...totals, commissions, payouts };
+  return { ...bd, ...totals, commissions, payouts, payout_requests: payoutRequests };
 }
 
 /** Valide une demande BD : génère un code promo unique et active le compte. */
@@ -217,6 +324,49 @@ export async function recordPayout(bdId, { method, reference, note }, adminId) {
       [bdId, due, method ?? null, reference ?? null, note ?? null, adminId ?? null]
     )).rows[0];
     await c.query(`UPDATE bd_commissions SET payout_id = $2 WHERE business_developer_id = $1 AND payout_id IS NULL`, [bdId, payout.id]);
+    // Clôture une éventuelle demande de reversement en attente.
+    await c.query(
+      `UPDATE bd_payout_requests SET status = 'paid', payout_id = $2, decided_at = now(), decided_by = $3
+       WHERE business_developer_id = $1 AND status = 'pending'`,
+      [bdId, payout.id, adminId ?? null]
+    );
     return { payout_id: payout.id, amount_fcfa: due };
   });
+}
+
+/** Liste des demandes de reversement émises par les BD (filtrables par statut). */
+export async function listPayoutRequests(status = 'pending') {
+  const params = [];
+  let where = '';
+  if (status) { params.push(status); where = `WHERE r.status = $1`; }
+  const { rows } = await query(
+    `SELECT r.id, r.amount_fcfa, r.method, r.mobile_money_number, r.orzayah_account, r.status,
+            r.requested_at, r.decided_at, bd.id AS business_developer_id, bd.promo_code,
+            c.full_name, c.phone
+     FROM bd_payout_requests r
+     JOIN business_developers bd ON bd.id = r.business_developer_id
+     JOIN consumers c ON c.id = bd.consumer_id
+     ${where}
+     ORDER BY (r.status = 'pending') DESC, r.requested_at DESC
+     LIMIT 200`,
+    params
+  );
+  return rows;
+}
+
+/** Traite une demande de reversement : 'pay' solde le dû (enregistre le reversement), 'reject' la refuse. */
+export async function decidePayoutRequest(requestId, action, { method, reference, note }, adminId) {
+  const reqRow = (await query(`SELECT business_developer_id, status, method, mobile_money_number FROM bd_payout_requests WHERE id = $1`, [requestId])).rows[0];
+  if (!reqRow) throw notFound('Demande de reversement introuvable');
+  if (reqRow.status !== 'pending') throw badRequest('REQUEST_DONE', 'Cette demande a déjà été traitée.');
+  if (action === 'reject') {
+    await query(`UPDATE bd_payout_requests SET status = 'rejected', decided_at = now(), decided_by = $2, note = $3 WHERE id = $1`, [requestId, adminId ?? null, note ?? null]);
+    return { status: 'rejected' };
+  }
+  if (action !== 'pay') throw badRequest('REQUEST_ACTION', 'Action invalide.');
+  // Enregistre le reversement (solde tout le dû) ; recordPayout clôture la demande en attente.
+  const payMethod = method ?? reqRow.method ?? 'mobile_money';
+  const payRef = reference ?? reqRow.mobile_money_number ?? null;
+  const r = await recordPayout(reqRow.business_developer_id, { method: payMethod, reference: payRef, note }, adminId);
+  return { status: 'paid', ...r };
 }

@@ -10,7 +10,7 @@ import { validate, zEmail, zImei, zPagination, zText, zUuid } from '../lib/valid
 import { requireAdmin } from '../middleware/auth.js';
 import { getBalance, orzayahEnabled } from '../lib/orzayah.js';
 import { ensureBlockRequest, blockRequestText } from './block-request.service.js';
-import { listBusinessDevelopers, businessDeveloperDetail, decideBusinessDeveloper, recordPayout } from './bd.service.js';
+import { listBusinessDevelopers, businessDeveloperDetail, decideBusinessDeveloper, recordPayout, listPayoutRequests, decidePayoutRequest } from './bd.service.js';
 
 /**
  * Back-office du promoteur gaRAN.
@@ -116,6 +116,7 @@ adminRouter.get('/dashboard', requireAdmin(...ALL), async (_req, res) => {
       (SELECT count(*)::int FROM theft_reports WHERE status = 'pending') AS theft_reports_pending,
       (SELECT count(*)::int FROM security_alerts WHERE status = 'open') AS alerts_open,
       (SELECT count(*)::int FROM business_developers WHERE status = 'pending') AS bd_requests_pending,
+      (SELECT count(*)::int FROM bd_payout_requests WHERE status = 'pending') AS bd_payout_requests_pending,
       (SELECT COALESCE(sum(amount), 0) FROM subscription_payments WHERE paid_at >= date_trunc('month', now())) AS revenue_month,
       (SELECT COALESCE(sum(months * 125), 0)::bigint FROM orzayah_payments
          WHERE purpose = 'subscription_consumer' AND COALESCE(applied, false)) AS sub_consumer_month_fcfa,
@@ -1182,5 +1183,27 @@ adminRouter.post(
     const r = await recordPayout(req.v.params.id, req.v.body, req.admin?.id);
     await audit(req, 'admin.bd_payout', { entity: 'business_developer', entityId: req.v.params.id, meta: { amount_fcfa: r.amount_fcfa } });
     res.status(201).json(r);
+  }
+);
+
+// Demandes de reversement émises par les BD (par défaut : en attente).
+adminRouter.get(
+  '/bd/payout-requests',
+  requireAdmin(...STAFF),
+  validate({ query: z.object({ status: z.enum(['pending', 'paid', 'rejected']).optional() }) }),
+  async (req, res) => {
+    res.json({ items: await listPayoutRequests(req.v.query.status ?? 'pending') });
+  }
+);
+
+// Traiter une demande de reversement : 'pay' (enregistre le reversement) ou 'reject'.
+adminRouter.post(
+  '/bd/payout-requests/:id/decide',
+  requireAdmin(...STAFF),
+  validate({ params: z.object({ id: zUuid }), body: z.object({ action: z.enum(['pay', 'reject']), method: z.string().trim().max(40).optional(), reference: z.string().trim().max(80).optional(), note: z.string().trim().max(200).optional() }) }),
+  async (req, res) => {
+    const r = await decidePayoutRequest(req.v.params.id, req.v.body.action, req.v.body, req.admin?.id);
+    await audit(req, 'admin.bd_payout_request_decided', { entity: 'bd_payout_request', entityId: req.v.params.id, meta: { action: req.v.body.action } });
+    res.json(r);
   }
 );

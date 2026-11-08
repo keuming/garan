@@ -178,7 +178,8 @@ export async function initiateDeviceSetup({ consumerId, registrationId }) {
 /** Crédite un versement de mise en service sur l'appareil (plafonné à 1 000). Active dès la 1re tranche. */
 async function applyDeviceSetup(c, row) {
   const amountFcfa = Math.round(Number(row.amount) / 100);
-  const before = (await c.query(`SELECT setup_paid_fcfa FROM device_registrations WHERE id = $1`, [row.device_registration_id])).rows[0];
+  const before = (await c.query(`SELECT setup_paid_fcfa, setup_first_payment_at FROM device_registrations WHERE id = $1`, [row.device_registration_id])).rows[0];
+  const firstPayment = Boolean(before && !before.setup_first_payment_at);
   const { rows } = await c.query(
     `UPDATE device_registrations
      SET setup_paid_fcfa = LEAST($2::int, setup_paid_fcfa + $3::int),
@@ -188,8 +189,8 @@ async function applyDeviceSetup(c, row) {
     [row.device_registration_id, CONSUMER_SETUP_TOTAL_FCFA, amountFcfa]
   );
   const after = rows[0]?.setup_paid_fcfa ?? 0;
-  // Commission BD « mise en service » créditée une seule fois, à la mise en service complète.
-  if ((before?.setup_paid_fcfa ?? 0) < CONSUMER_SETUP_TOTAL_FCFA && after >= CONSUMER_SETUP_TOTAL_FCFA) {
+  // Commission BD « mise en service » créditée dès le 1er versement (unicité garantie par index).
+  if (firstPayment) {
     await creditConsumerReferral(c, { consumerId: row.subject_id, setup: true, source: row.id ?? row.idempotency_key });
   }
   return after;
@@ -277,20 +278,23 @@ export async function initiateMerchantSetup({ orgId }) {
   }
 }
 
-/** Crédite un versement de mise en service sur le compte marchand (plafonné au total). */
+/** Crédite un versement de mise en service sur le compte marchand (plafonné au total).
+    Active le compte dès le 1er versement et crédite alors la commission BD « marchand ». */
 async function applyMerchantSetup(c, row) {
   const amountFcfa = Math.round(Number(row.amount) / 100);
-  const before = (await c.query(`SELECT setup_paid_fcfa FROM organizations WHERE id = $1`, [row.subject_id])).rows[0];
+  const before = (await c.query(`SELECT setup_paid_fcfa, setup_first_payment_at FROM organizations WHERE id = $1`, [row.subject_id])).rows[0];
+  const firstPayment = Boolean(before && !before.setup_first_payment_at);
   const { rows } = await c.query(
     `UPDATE organizations
      SET setup_paid_fcfa = LEAST($2::int, setup_paid_fcfa + $3::int),
          setup_first_payment_at = COALESCE(setup_first_payment_at, now()),
-         status = CASE WHEN setup_paid_fcfa + $3 >= $2 AND status = 'trial' THEN 'active' ELSE status END
+         status = CASE WHEN status = 'trial' THEN 'active' ELSE status END
      WHERE id = $1 RETURNING setup_paid_fcfa`,
     [row.subject_id, MERCHANT_SETUP_TOTAL_FCFA, amountFcfa]
   );
   const after = rows[0]?.setup_paid_fcfa ?? 0;
-  if ((before?.setup_paid_fcfa ?? 0) < MERCHANT_SETUP_TOTAL_FCFA && after >= MERCHANT_SETUP_TOTAL_FCFA) {
+  // Commission BD « marchand » créditée dès le 1er versement (unicité garantie par index).
+  if (firstPayment) {
     await creditMerchantReferral(c, { orgId: row.subject_id, source: row.id ?? row.idempotency_key });
   }
   return after;

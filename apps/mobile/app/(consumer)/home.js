@@ -71,6 +71,17 @@ function BdStat({ label, value }) {
   );
 }
 
+/** Tuile de solde de commission (couleur pleine, pour motiver le BD). */
+function BdBalanceTile({ label, due, total, bg }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: bg, borderRadius: 16, padding: 14 }}>
+      <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: '#fff', fontSize: 24, fontWeight: '900', marginTop: 4 }}>{nf(due)} F</Text>
+      <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11.5, marginTop: 2 }}>cumul {nf(total)} F</Text>
+    </View>
+  );
+}
+
 /** Bloc parrainage sur l'accueil : demande, ou code promo + partage une fois validé. */
 function BusinessDeveloperCard() {
   const { consumer, reloadConsumer } = useAuth();
@@ -90,19 +101,34 @@ function BusinessDeveloperCard() {
     const openUrl = (u) => Linking.openURL(u).catch(() => Alert.alert('Partage impossible', 'Application de partage introuvable sur cet appareil.'));
     return (
       <Card style={{ gap: 12, borderWidth: 1, borderColor: colors.green }}>
-        <Muted>Mon espace Business Développeur</Muted>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Muted>Mon espace Business Développeur</Muted>
+          <Text style={{ fontSize: 11.5, color: colors.ink3 }}>{s.usagers ?? 0} usagers · {s.marchands ?? 0} marchands</Text>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <BdBalanceTile label="Commission usager" due={s.consumer_due_fcfa ?? 0} total={s.consumer_total_fcfa ?? 0} bg={colors.green} />
+          <BdBalanceTile label="Commission marchand" due={s.merchant_due_fcfa ?? 0} total={s.merchant_total_fcfa ?? 0} bg={colors.navy} />
+        </View>
+        <Text style={{ textAlign: 'center', color: colors.ink2, fontSize: 12.5 }}>
+          Disponible à reverser : <Text style={{ fontWeight: '900', color: colors.ink }}>{nf(s.due_fcfa ?? 0)} FCFA</Text>
+        </Text>
+
         <View style={{ alignItems: 'center', gap: 2 }}>
           <Text style={{ fontSize: 12.5, color: colors.ink2 }}>Votre code promo à partager</Text>
-          <Text style={{ fontSize: 32, fontWeight: '900', letterSpacing: 4, color: colors.green }}>{code}</Text>
-        </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap', gap: 8 }}>
-          <BdStat label="Usagers" value={s.usagers ?? 0} />
-          <BdStat label="Marchands" value={s.marchands ?? 0} />
-          <BdStat label="Gagné" value={`${nf(s.total_fcfa ?? 0)} F`} />
-          <BdStat label="Dû" value={`${nf(s.due_fcfa ?? 0)} F`} />
+          <Text style={{ fontSize: 30, fontWeight: '900', letterSpacing: 4, color: colors.green }}>{code}</Text>
         </View>
         <Button title="Partager sur WhatsApp" onPress={() => openUrl('https://wa.me/?text=' + encodeURIComponent(msg))} />
-        <Button title="Partager par SMS" variant="secondary" onPress={() => openUrl('sms:?body=' + encodeURIComponent(msg))} />
+        <Button title="Mon espace & reversements" variant="secondary" onPress={() => router.push('/bd')} />
+        {bd.pending_request ? (
+          <Text style={{ textAlign: 'center', color: colors.warn, fontSize: 12.5 }}>
+            Reversement de {nf(bd.pending_request.amount_fcfa)} FCFA en cours de traitement.
+          </Text>
+        ) : !bd.orzayah_account ? (
+          <Text style={{ textAlign: 'center', color: colors.ink3, fontSize: 12 }}>
+            💡 Créez votre compte ORZAYAH pour gérer vos gains vous-même.
+          </Text>
+        ) : null}
       </Card>
     );
   }

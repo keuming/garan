@@ -55,7 +55,7 @@ async function notifyEmailChange({ oldEmail, newEmail, name }) {
   }).catch(() => {});
 }
 import { initiateDeviceSubscription, deviceQuote, deviceSetupState, initiateDeviceSetup, pollSubscription, syncSubscriptions } from './subscription.service.js';
-import { resolvePromoCode, bdSummary, requestBecomeBD } from './bd.service.js';
+import { resolvePromoCode, bdSummary, bdDashboard, requestBecomeBD, requestBdPayout, setBdOrzayahAccount } from './bd.service.js';
 import { imeiGaranLookup } from './imei-lookup.service.js';
 import { validate, zEmail, zImei, zOptionalEmail, zPhone, zPin, zText, zUuid } from '../lib/validate.js';
 import { authLimiter } from '../middleware/rateLimit.js';
@@ -642,6 +642,35 @@ consumerRouter.post('/business-developer/request', requireConsumer, async (req, 
   await audit(req, 'consumer.bd_request', { entity: 'consumer', entityId: req.auth.sub });
   res.status(201).json({ ...r, consumer: await loadConsumer(req.auth.sub) });
 });
+
+/** Tableau de bord BD : soldes ventilés, historique des gains, reversements. */
+consumerRouter.get('/business-developer/dashboard', requireConsumer, async (req, res) => {
+  res.json(await bdDashboard(req.auth.sub));
+});
+
+/** Rattache / met à jour le compte ORZAYAH du BD (gestion autonome des gains). */
+consumerRouter.post(
+  '/business-developer/orzayah-account',
+  requireConsumer,
+  validate({ body: z.object({ orzayah_account: z.string().trim().max(80).optional() }) }),
+  async (req, res) => {
+    const r = await setBdOrzayahAccount(req.auth.sub, req.v.body);
+    await audit(req, 'consumer.bd_orzayah_account', { entity: 'consumer', entityId: req.auth.sub });
+    res.json(r);
+  }
+);
+
+/** Demande de reversement du dû (Mobile Money ou vers le compte ORZAYAH rattaché). */
+consumerRouter.post(
+  '/business-developer/payout-request',
+  requireConsumer,
+  validate({ body: z.object({ method: z.enum(['mobile_money', 'orzayah']).default('mobile_money'), mobile_money_number: z.string().trim().max(40).optional() }) }),
+  async (req, res) => {
+    const r = await requestBdPayout(req.auth.sub, req.v.body);
+    await audit(req, 'consumer.bd_payout_request', { entity: 'business_developer', entityId: req.auth.sub, meta: { amount_fcfa: r.amount_fcfa, method: r.method } });
+    res.status(201).json(r);
+  }
+);
 
 /** Vérification publique simple d'un IMEI, utile avant un achat d'occasion. */
 consumerRouter.get(
