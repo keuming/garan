@@ -631,6 +631,39 @@ consumerRouter.get('/setup/pending', requireConsumer, async (req, res) => {
 
 /* -------------------- Business Développeur (parrainage) -------------------- */
 
+/** Destinataires des alertes internes : admins actifs, sinon OPS_EMAIL/MAIL_REPLY_TO. */
+async function adminRecipients() {
+  const { rows } = await query(`SELECT email FROM admins WHERE status = 'active' AND role IN ('superadmin','admin') AND email IS NOT NULL`);
+  const list = rows.map((r) => r.email).filter(Boolean);
+  if (list.length) return list;
+  const fallback = config.OPS_EMAIL || config.MAIL_REPLY_TO;
+  return fallback ? [fallback] : [];
+}
+
+/** Alerte e-mail au back-office à chaque nouvelle demande de reversement BD. Ne bloque jamais. */
+async function notifyAdminsPayoutRequest(consumerId, request) {
+  try {
+    const to = await adminRecipients();
+    if (!to.length) return;
+    const bd = (await query(
+      `SELECT c.full_name, c.phone, b.promo_code FROM consumers c
+       LEFT JOIN business_developers b ON b.consumer_id = c.id WHERE c.id = $1`,
+      [consumerId]
+    )).rows[0] ?? {};
+    const amount = new Intl.NumberFormat('fr-FR').format(Number(request.amount_fcfa) || 0);
+    const dest = request.method === 'orzayah' ? 'son compte ORZAYAH' : `Mobile Money ${request.mobile_money_number ?? ''}`;
+    await sendEmail({
+      to,
+      subject: `gaRAN — demande de reversement BD : ${amount} FCFA`,
+      html: emailLayout({
+        title: 'Nouvelle demande de reversement',
+        bodyHtml: `<p>Le Business Développeur <strong>${bd.full_name ?? 'inconnu'}</strong>${bd.promo_code ? ` (code ${bd.promo_code})` : ''}${bd.phone ? ` · ${bd.phone}` : ''} demande le reversement de <strong>${amount} FCFA</strong> vers ${dest}.</p><p>Traitez-la dans le back-office : <em>Business Développeurs → Demandes de reversement en attente</em>.</p>`
+      }),
+      text: `Demande de reversement BD : ${bd.full_name ?? 'inconnu'} — ${amount} FCFA vers ${dest}. À traiter dans le back-office (Business Développeurs).`
+    });
+  } catch { /* alerte best-effort : n'interrompt jamais la demande */ }
+}
+
 /** Statut BD de l'usager (code promo + stats si actif). */
 consumerRouter.get('/business-developer', requireConsumer, async (req, res) => {
   res.json(await bdSummary(req.auth.sub));
@@ -668,6 +701,7 @@ consumerRouter.post(
   async (req, res) => {
     const r = await requestBdPayout(req.auth.sub, req.v.body);
     await audit(req, 'consumer.bd_payout_request', { entity: 'business_developer', entityId: req.auth.sub, meta: { amount_fcfa: r.amount_fcfa, method: r.method } });
+    notifyAdminsPayoutRequest(req.auth.sub, r).catch(() => {});
     res.status(201).json(r);
   }
 );

@@ -24,12 +24,15 @@ const schema = z
     ORZAYAH_API_URL: z.string().url().default('https://api.orzayah.com/api/public/v1'),
     ORZAYAH_API_KEY: z.string().default(''),
     // Page de création d'un compte ORZAYAH (invitation faite au Business Développeur).
-    ORZAYAH_SIGNUP_URL: z.string().url().default('https://orzayah.com'),
+    ORZAYAH_SIGNUP_URL: z.string().url().default('https://wallet.orzayah.com/inscription'),
 
     // Envoi d'e-mails transactionnels via Resend. Vide = envoi désactivé proprement (aucune erreur).
     RESEND_API_KEY: z.string().default(''),
     MAIL_FROM: z.string().default(''),
     MAIL_REPLY_TO: z.string().default(''),
+    // Adresse de secours pour les alertes internes (demandes de reversement BD, etc.).
+    // Si vide, l'alerte part vers les admins actifs (table admins).
+    OPS_EMAIL: z.string().default(''),
 
     // Passerelle SMS (générique, branchable). Vide = envoi SMS désactivé proprement.
     SMS_API_URL: z.string().default(''),
