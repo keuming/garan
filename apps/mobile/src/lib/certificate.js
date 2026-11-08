@@ -10,7 +10,7 @@ const esc = (v) =>
   String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /** Grand badge de sécurité gaRAN (bouclier + coche, SVG inline — aucune image externe requise). */
-const BADGE = `<svg viewBox="0 0 150 172" width="150" height="172" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Badge de sécurité gaRAN">
+export const BADGE = `<svg viewBox="0 0 150 172" width="150" height="172" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Badge de sécurité gaRAN">
   <defs>
     <linearGradient id="gshield" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#17E08A"/><stop offset="1" stop-color="#00B368"/>
@@ -22,6 +22,15 @@ const BADGE = `<svg viewBox="0 0 150 172" width="150" height="172" xmlns="http:/
   <text x="75" y="135" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="800" fill="#0A1F44">gaRAN</text>
   <text x="75" y="152" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="8.5" font-weight="700" letter-spacing="1.6" fill="#00B368">SÉCURITÉ CERTIFIÉE</text>
 </svg>`;
+
+/** Mention de certification adaptée au type d'appareil vendu (accords corrects). */
+const CERTIFIED_MENTION = {
+  phone: 'Ce téléphone est certifié sécurisé gaRAN',
+  tablet: 'Cette tablette est certifiée sécurisée gaRAN',
+  computer: 'Cet ordinateur est certifié sécurisé gaRAN',
+  other: 'Cet appareil est certifié sécurisé gaRAN'
+};
+export const certifiedMention = (deviceType) => CERTIFIED_MENTION[deviceType] ?? CERTIFIED_MENTION.other;
 
 function shell(title, bodyRows, qrSvg, intro, qrCaption) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><style>

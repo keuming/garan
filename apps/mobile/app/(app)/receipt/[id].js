@@ -10,9 +10,12 @@ import { Banner, Button, Card, ErrorBanner, Loading, Muted, Row, Screen, Title }
 import { api } from '../../../src/lib/api';
 import { dateTime, fcfa, LABELS } from '../../../src/lib/format';
 import { code128Svg } from '../../../src/lib/barcode';
+import { BADGE, certifiedMention } from '../../../src/lib/certificate';
 import { colors } from '../../../src/lib/theme';
 
 const PAY = { cash: 'Espèces', orzayah: 'ORZAYAH (paiement digital)' };
+const DEVICE_NOUN = { phone: 'téléphone', tablet: 'tablette', computer: 'ordinateur', other: 'appareil' };
+const deviceNoun = (t) => DEVICE_NOUN[t] ?? 'appareil';
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 function receiptHtml(t, qrSvg, barcodeSvg) {
@@ -45,6 +48,15 @@ function receiptHtml(t, qrSvg, barcodeSvg) {
     .barcode .imei{font-family:monospace;font-size:16px;letter-spacing:2px;margin-top:6px}
     .qr{display:flex;gap:16px;align-items:center;margin-top:16px;border:1px solid #E1E7F2;border-radius:12px;padding:12px}
     .qr svg{width:120px;height:120px}
+    .cert{margin-top:16px;border:2px solid #00B368;border-radius:14px;padding:14px;text-align:center;background:#F3FCF7}
+    .cert .seal{width:92px;height:auto}
+    .cert .mention{font-size:15px;font-weight:800;color:#0A1F44;margin-top:4px}
+    .cert .sub{font-size:11.5px;color:#4A5878;margin-top:4px}
+    .foot{margin-top:22px;border-top:1px solid #E1E7F2;padding-top:12px;font-size:11.5px;color:#4A5878}
+    .foot .biz strong{color:#0A1F44;font-size:13px}
+    .foot .sig{margin-top:14px;display:flex;gap:16px}
+    .foot .sigbox{flex:1;border:1px dashed #C7D0E0;border-radius:10px;height:66px;padding:6px 8px;color:#8A97AD;font-size:10.5px}
+    .foot .galine{margin-top:12px;text-align:center;color:#8A97AD}
   </style></head><body>
   <div class="brand"><span class="ga">ga</span><span class="ran">RAN</span></div>
   <div class="muted">Registre digital des téléphones · IMEI</div>
@@ -57,7 +69,24 @@ function receiptHtml(t, qrSvg, barcodeSvg) {
   </div>
   <table>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
   <div class="barcode">${t.device.imei1 ? `${barcodeSvg}<div class="imei">${esc(t.device.imei1)}</div>` : `<div class="imei">N° de série : ${esc(t.device.serial_number ?? '—')}</div>`}</div>
-  ${t.type === 'sale' ? `<div class="qr">${qrSvg}<div><strong>Preuve de propriété</strong><br><span class="muted">Scannez ce code ou ouvrez ${esc(t.certificate_url)} pour vérifier que ce téléphone vous appartient, même sans le carton.</span></div></div>` : ''}
+  ${t.type === 'sale' ? `
+    <div class="cert">
+      ${BADGE.replace('<svg ', '<svg class="seal" ')}
+      <div class="mention">${esc(certifiedMention(t.device.device_type))}</div>
+      <div class="sub">Certificat de sécurité gaRAN — enregistré au réseau anti-vol gaRAN.</div>
+    </div>
+    <div class="qr">${qrSvg}<div><strong>Preuve de propriété</strong><br><span class="muted">Scannez ce code ou ouvrez ${esc(t.certificate_url)} pour vérifier que cet appareil vous appartient, même sans le carton.</span></div></div>` : ''}
+  <div class="foot">
+    <div class="biz">
+      <strong>${esc(t.organization?.name ?? t.shop.name)}</strong> — ${esc(t.shop.name)}<br>
+      ${esc(t.shop.city)}, ${esc(t.shop.district)} · Tél. ${esc(t.shop.phone)}${t.shop.rccm ? ` · RCCM ${esc(t.shop.rccm)}` : ''}${t.organization?.phone && t.organization.phone !== t.shop.phone ? ` · ${esc(t.organization.phone)}` : ''}
+    </div>
+    <div class="sig">
+      <div class="sigbox">Cachet et signature du marchand</div>
+      ${t.person ? `<div class="sigbox">Signature ${esc(who.toLowerCase())}</div>` : ''}
+    </div>
+    <div class="galine">Document établi via gaRAN · registre digital anti-vol · une solution ORZAYAH SERVICES.</div>
+  </div>
   </body></html>`;
 }
 
@@ -173,9 +202,10 @@ export default function Receipt() {
       </Card>
 
       {t.type === 'sale' ? (
-        <Card style={{ alignItems: 'center' }}>
-          {qr ? <SvgXml xml={qr} width={180} height={180} accessibilityLabel="QR code du certificat de propriété" /> : <Loading />}
-          <Muted style={{ textAlign: 'center' }}>Certificat de propriété : le client garde la preuve de son achat, même s’il perd le carton.</Muted>
+        <Card style={{ alignItems: 'center', gap: 6 }}>
+          <Text style={{ fontSize: 15, fontWeight: '800', color: colors.green, textAlign: 'center' }}>🛡️ {certifiedMention(t.device.device_type)}</Text>
+          {qr ? <SvgXml xml={qr} width={180} height={180} accessibilityLabel="QR code du certificat de sécurité gaRAN" /> : <Loading />}
+          <Muted style={{ textAlign: 'center' }}>Certificat de sécurité gaRAN : le client garde la preuve de son achat et de la protection anti-vol, même s’il perd le carton.</Muted>
         </Card>
       ) : null}
 
