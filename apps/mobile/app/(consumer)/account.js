@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import { Banner, Button, Card, ErrorBanner, Input, Muted, Row, Screen, Title } from '../../src/components/ui';
@@ -35,10 +35,21 @@ export default function ConsumerAccount() {
   const pinMismatch = pin.confirm.length === 4 && pin.new_pin !== pin.confirm;
   const pinReady = pin.current_pin.length === 4 && pin.new_pin.length === 4 && pin.new_pin === pin.confirm;
 
-  async function confirmLogout() {
+  async function doLogout() {
+    await logout();
+    router.replace('/welcome');
+  }
+
+  function confirmLogout() {
+    // Sur le web (PWA), Alert.alert n'affiche pas de boutons : on utilise window.confirm.
+    if (Platform.OS === 'web') {
+      const ok = typeof window === 'undefined' || window.confirm('Voulez-vous vous déconnecter ?');
+      if (ok) doLogout();
+      return;
+    }
     Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Se déconnecter', style: 'destructive', onPress: async () => { await logout(); router.replace('/welcome'); } }
+      { text: 'Se déconnecter', style: 'destructive', onPress: doLogout }
     ]);
   }
 

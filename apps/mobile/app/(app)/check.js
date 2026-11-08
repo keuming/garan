@@ -2,12 +2,19 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import { ImeiField } from '../../src/components/ImeiField';
-import { Banner, Button, Card, ErrorBanner, Muted, Row, Screen, Title } from '../../src/components/ui';
+import { Banner, Button, Card, ErrorBanner, Input, Muted, Row, Screen, Select, Title } from '../../src/components/ui';
 import { api } from '../../src/lib/api';
 import { isValidImei } from '../../src/lib/imei';
 import { date, dateTime } from '../../src/lib/format';
 
 const nf = (n) => new Intl.NumberFormat('fr-FR').format(Number(n) || 0);
+
+const DEVICE_TYPES = [
+  { value: 'phone', label: 'Téléphone' },
+  { value: 'computer', label: 'Ordinateur' },
+  { value: 'tablet', label: 'Tablette' },
+  { value: 'other', label: 'Autre appareil électronique' }
+];
 
 const OWNERSHIP = {
   none: 'Aucun propriétaire enregistré',
@@ -18,24 +25,47 @@ const OWNERSHIP = {
 };
 
 export default function Check() {
+  const [dtype, setDtype] = useState('phone');
   const [imei, setImei] = useState('');
-  const check = useMutation({ mutationFn: () => api.get(`/devices/check/${imei}`) });
+  const [serial, setSerial] = useState('');
+  const isPhone = dtype === 'phone';
+  const identifier = isPhone ? imei : serial.trim();
+  const ready = isPhone ? isValidImei(imei) : serial.trim().length >= 3;
+
+  const check = useMutation({
+    mutationFn: () => isPhone
+      ? api.get(`/devices/check/${imei}`)
+      : api.get('/devices/verify', { identifier: serial.trim() })
+  });
   const r = check.data;
+  const noun = isPhone ? 'téléphone' : 'appareil';
 
   return (
     <Screen>
-      <Title sub="Avant d’acheter un téléphone, vérifiez qu’il n’est pas signalé et qui en est le propriétaire.">Vérifier un IMEI</Title>
+      <Title sub="Avant d’acheter un appareil, vérifiez qu’il n’est pas signalé et qui en est le propriétaire.">Vérifier un appareil</Title>
       <Card>
-        <ImeiField value={imei} onChange={(v) => { setImei(v); check.reset(); }} />
-        <Button title="Vérifier" onPress={() => check.mutate()} loading={check.isPending} disabled={!isValidImei(imei)} />
+        <Select label="Type d’appareil" value={dtype} options={DEVICE_TYPES} onChange={(v) => { setDtype(v); check.reset(); }} />
+        {isPhone ? (
+          <ImeiField value={imei} onChange={(v) => { setImei(v); check.reset(); }} />
+        ) : (
+          <Input
+            label="Numéro de série"
+            value={serial}
+            onChangeText={(v) => { setSerial(v); check.reset(); }}
+            autoCapitalize="characters"
+            placeholder="N° de série de l’appareil"
+          />
+        )}
+        <Button title="Vérifier" onPress={() => check.mutate()} loading={check.isPending} disabled={!ready} />
       </Card>
       <ErrorBanner error={check.error} />
       {r ? (
         <>
-          <Banner tone={r.reported ? 'danger' : r.known ? 'ok' : 'info'} title={r.reported ? 'NE PAS ACHETER' : r.known ? 'Téléphone enregistré' : 'Téléphone inconnu'}>
+          <Banner tone={r.reported ? 'danger' : r.known ? 'ok' : 'info'} title={r.reported ? 'NE PAS ACHETER' : r.known ? 'Appareil enregistré' : 'Appareil inconnu'}>
             {r.message}
           </Banner>
           <Card>
+            <Row label="Identifiant" value={identifier} mono />
             <Row label="Modèle" value={r.brand ? `${r.brand} ${r.model ?? ''}` : '—'} />
             <Row label="Détenteur" value={OWNERSHIP[r.ownership]} />
             <Row label="Rachat possible" value={r.can_buy ? 'Oui' : 'Non'} />
@@ -63,8 +93,8 @@ export default function Check() {
               )}
             </Card>
           ) : null}
-          {r.can_buy ? <Button title="Faire le rachat" variant="navy" onPress={() => router.replace({ pathname: '/operation', params: { type: 'purchase' } })} /> : null}
-          {r.can_sell ? <Button title="Faire la vente" onPress={() => router.replace({ pathname: '/operation', params: { type: 'sale' } })} /> : null}
+          {r.can_buy ? <Button title="Faire le rachat" variant="navy" onPress={() => router.replace({ pathname: '/operation', params: { type: 'purchase', dtype, ident: identifier } })} /> : null}
+          {r.can_sell ? <Button title="Faire la vente" onPress={() => router.replace({ pathname: '/operation', params: { type: 'sale', dtype, ident: identifier } })} /> : null}
         </>
       ) : null}
     </Screen>

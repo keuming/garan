@@ -41,8 +41,10 @@ registryRouter.use(requireUser);
 
 const zDevice = z
   .object({
-    imei1: zImei,
+    device_type: z.enum(['phone', 'computer', 'tablet', 'other']).default('phone'),
+    imei1: zImei.optional().nullable(),
     imei2: zImei.optional().nullable(),
+    serial_number: z.string().trim().min(3).max(64).optional().nullable(),
     brand_id: z.coerce.number().int().positive().optional(),
     brand_label: z.string().trim().max(60).optional().nullable(),
     model_id: z.coerce.number().int().positive().optional().nullable(),
@@ -50,7 +52,15 @@ const zDevice = z
     color: z.string().trim().max(40).optional().nullable(),
     storage_gb: z.coerce.number().int().positive().max(4096).optional().nullable()
   })
-  .refine((d) => !d.imei2 || d.imei2 !== d.imei1, { message: 'Les deux IMEI doivent être différents', path: ['imei2'] });
+  .refine((d) => !d.imei2 || d.imei2 !== d.imei1, { message: 'Les deux IMEI doivent être différents', path: ['imei2'] })
+  .superRefine((d, ctx) => {
+    // Téléphone → IMEI requis ; autre appareil → numéro de série requis.
+    if (d.device_type === 'phone') {
+      if (!d.imei1) ctx.addIssue({ code: 'custom', path: ['imei1'], message: 'L’IMEI est requis pour un téléphone' });
+    } else if (!d.serial_number) {
+      ctx.addIssue({ code: 'custom', path: ['serial_number'], message: 'Le numéro de série est requis' });
+    }
+  });
 
 const zPerson = z
   .object({
@@ -78,6 +88,20 @@ registryRouter.get(
   async (req, res) => {
     const base = await checkDevice(req.v.params.imei, req.auth);
     res.json({ ...base, garan: await imeiGaranLookup(req.v.params.imei) });
+  }
+);
+
+// Vérification générique par identifiant : IMEI (téléphone) ou numéro de série (autre appareil).
+registryRouter.get(
+  '/devices/verify',
+  requireActiveSubscription,
+  validate({ query: z.object({ identifier: z.string().trim().min(3).max(64) }) }),
+  async (req, res) => {
+    const id = req.v.query.identifier;
+    const base = await checkDevice(id, req.auth);
+    // Le détail « acquéreur gaRAN » ne concerne que les téléphones (IMEI 15 chiffres).
+    const garan = /^[0-9]{15}$/.test(id) ? await imeiGaranLookup(id) : null;
+    res.json({ ...base, garan });
   }
 );
 

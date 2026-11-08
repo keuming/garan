@@ -88,7 +88,7 @@ export default function Account() {
       ) : null}
 
       <Banner tone="info">Assistance gaRAN : contactez votre conseiller pour le renouvellement de l’abonnement ou l’ajout de magasins.</Banner>
-      <Button title="Se déconnecter" variant="danger" onPress={logout} />
+      <Button title="Se déconnecter" variant="danger" onPress={async () => { await logout(); router.replace('/welcome'); }} />
       <Muted style={{ textAlign: 'center' }}>{Constants.expoConfig?.name} · v{Constants.expoConfig?.version}</Muted>
     </Screen>
   );

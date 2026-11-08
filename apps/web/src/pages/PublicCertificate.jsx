@@ -38,8 +38,12 @@ export function PublicCertificate() {
               </div>
             </div>
             <dl className="dl">
-              <dt>Téléphone</dt><dd>{c.device.brand} {c.device.model}</dd>
-              <dt>IMEI</dt><dd className="mono">{c.device.imei}</dd>
+              <dt>Appareil</dt><dd>{c.device.brand} {c.device.model}</dd>
+              {c.device.imei ? (
+                <><dt>IMEI</dt><dd className="mono">{c.device.imei}</dd></>
+              ) : c.device.serial_number ? (
+                <><dt>N° de série</dt><dd className="mono">{c.device.serial_number}</dd></>
+              ) : null}
               <dt>État à la vente</dt><dd>{LABELS.condition[c.condition]}</dd>
               <dt>Date de vente</dt><dd>{date(c.sold_at)}</dd>
               <dt>Boutique</dt><dd>{c.shop.name} — {c.shop.city}, {c.shop.district}</dd>

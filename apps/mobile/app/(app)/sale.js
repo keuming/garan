@@ -15,6 +15,12 @@ import { colors, radius } from '../../src/lib/theme';
 const DOC_TYPES = toOptions(LABELS.docType);
 const CONDITIONS = toOptions(LABELS.condition);
 const STEPS = ['Article', 'Acheteur', 'Paiement'];
+const DEVICE_TYPES = [
+  { value: 'phone', label: 'Téléphone' },
+  { value: 'computer', label: 'Ordinateur' },
+  { value: 'tablet', label: 'Tablette' },
+  { value: 'other', label: 'Autre appareil électronique' }
+];
 
 function Stepper({ step }) {
   return (
@@ -48,12 +54,17 @@ export default function Sale() {
   // Étape 1 — article & IMEI
   const avail = useQuery({ queryKey: ['org', 'listings', 'available'], queryFn: () => api.get('/org/listings', { available: '1' }) });
   const [listing, setListing] = useState(null);
+  const [deviceType, setDeviceType] = useState('phone');
+  const isPhone = deviceType === 'phone';
   const [imei1, setImei1] = useState('');
   const [imei2, setImei2] = useState('');
+  const [serial, setSerial] = useState('');
   const [dualSim, setDualSim] = useState(false);
   const [device, setDevice] = useState({});
-  const verify = useMutation({ mutationFn: () => api.get(`/devices/check/${imei1}`) });
-  const check = verify.data; // réinitialisé dès que l'IMEI change (verify.reset())
+  const verify = useMutation({
+    mutationFn: () => isPhone ? api.get(`/devices/check/${imei1}`) : api.get('/devices/verify', { identifier: serial.trim() })
+  });
+  const check = verify.data; // réinitialisé dès que l'identifiant change (verify.reset())
 
   // Étape 2 — acheteur
   const [person, setPerson] = useState({ id_doc_type: 'CNI', id_doc_number: '', full_name: '', phone1: '', phone2: '', email: '' });
@@ -79,7 +90,9 @@ export default function Sale() {
     if (!price) setPrice(String(l.price || ''));
   }
 
-  const imeiOk = isValidImei(imei1) && (!dualSim || !imei2 || (isValidImei(imei2) && imei2 !== imei1));
+  const imeiOk = isPhone
+    ? isValidImei(imei1) && (!dualSim || !imei2 || (isValidImei(imei2) && imei2 !== imei1))
+    : serial.trim().length >= 3;
   const blocked = check && !check.can_sell;
   const needsDevice = check && !check.known;
   const deviceOk = !needsDevice || (device.brand_id && (device.model_id || device.model_label));
@@ -98,8 +111,8 @@ export default function Sale() {
       const body = {
         shop_id: shopId,
         device: {
-          imei1,
-          imei2: dualSim && imei2 ? imei2 : undefined,
+          device_type: deviceType,
+          ...(isPhone ? { imei1, imei2: dualSim && imei2 ? imei2 : undefined } : { serial_number: serial.trim() }),
           ...(check?.known ? {} : { brand_id: device.brand_id, model_id: device.model_id, model_label: device.model_label })
         },
         person: { ...person, id_doc_front_key: frontKey ?? undefined, id_doc_back_key: backKey ?? undefined },
@@ -158,14 +171,21 @@ export default function Sale() {
           ) : null}
 
           <Card>
-            <Muted>Téléphone vendu</Muted>
-            <ImeiField label="IMEI 1" value={imei1} onChange={(v) => { setImei1(v); verify.reset(); }} />
-            <Segmented value={dualSim ? 'dual' : 'single'} onChange={(v) => setDualSim(v === 'dual')} options={[{ value: 'single', label: 'Une SIM' }, { value: 'dual', label: 'Double SIM' }]} />
-            {dualSim ? <ImeiField label="IMEI 2" value={imei2} onChange={setImei2} optional /> : null}
+            <Muted>Appareil vendu</Muted>
+            <Select label="Type d’appareil" value={deviceType} options={DEVICE_TYPES} onChange={(v) => { setDeviceType(v); verify.reset(); }} />
+            {isPhone ? (
+              <>
+                <ImeiField label="IMEI 1" value={imei1} onChange={(v) => { setImei1(v); verify.reset(); }} />
+                <Segmented value={dualSim ? 'dual' : 'single'} onChange={(v) => setDualSim(v === 'dual')} options={[{ value: 'single', label: 'Une SIM' }, { value: 'dual', label: 'Double SIM' }]} />
+                {dualSim ? <ImeiField label="IMEI 2" value={imei2} onChange={setImei2} optional /> : null}
+              </>
+            ) : (
+              <Input label="Numéro de série" value={serial} onChangeText={(v) => { setSerial(v); verify.reset(); }} autoCapitalize="characters" placeholder="N° de série de l’appareil" />
+            )}
             <Button title="Vérifier dans le registre" onPress={() => verify.mutate()} loading={verify.isPending} disabled={!imeiOk} />
             <ErrorBanner error={verify.error} />
             {check ? (
-              <Banner tone={blocked ? 'danger' : check.known ? 'ok' : 'info'} title={check.reported ? 'TÉLÉPHONE SIGNALÉ' : blocked ? 'Vente impossible' : 'Vérification OK'}>
+              <Banner tone={blocked ? 'danger' : check.known ? 'ok' : 'info'} title={check.reported ? 'APPAREIL SIGNALÉ' : blocked ? 'Vente impossible' : 'Vérification OK'}>
                 {check.message}
               </Banner>
             ) : null}
@@ -274,7 +294,7 @@ export default function Sale() {
           <Card>
             <Muted>Récapitulatif</Muted>
             <Row label="Téléphone" value={check?.known ? `${check.brand ?? ''} ${check.model ?? ''}`.trim() : listing?.title ?? '—'} />
-            <Row label="IMEI" value={imei1} mono />
+            <Row label={isPhone ? 'IMEI' : 'N° de série'} value={isPhone ? imei1 : serial.trim()} mono />
             <Row label="Acheteur" value={person.full_name || '—'} />
             <Row label="Montant" value={price ? fcfa(price) : '—'} />
             <Row label="Paiement" value={payment === 'orzayah' ? 'ORZAYAH' : 'Espèces'} />

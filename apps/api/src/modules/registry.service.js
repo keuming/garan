@@ -14,21 +14,26 @@ import { SETUP_FCFA, PLAN_FCFA } from './subscription.service.js';
  * ===================================================================== */
 
 export const DEVICE_COLUMNS = `
-  d.id, d.imei1, d.imei2, d.brand_id, d.model_id, d.model_label, d.color, d.storage_gb,
+  d.id, d.imei1, d.imei2, d.device_type, d.serial_number, d.brand_id, d.model_id, d.model_label, d.color, d.storage_gb,
   d.status, d.owner_type, d.owner_shop_id, d.owner_person_id, d.created_at,
   COALESCE(b.name, d.brand_label) AS brand_name, COALESCE(m.name, d.model_label) AS model_name,
   os.organization_id AS owner_org_id`;
 
-export async function findDeviceByImei(client, imei, { lock = false } = {}) {
+// Noms d'appareil selon le type (pour des messages justes téléphone/ordinateur/…).
+const TYPE_NOUN = { phone: 'téléphone', computer: 'ordinateur', tablet: 'tablette', other: 'appareil' };
+const nounFor = (t) => TYPE_NOUN[t] ?? 'appareil';
+
+/** Recherche un appareil par son identifiant : IMEI (1 ou 2) ou numéro de série. */
+export async function findDeviceByImei(client, identifier, { lock = false } = {}) {
   const { rows } = await client.query(
     `SELECT ${DEVICE_COLUMNS}
      FROM devices d
      LEFT JOIN brands b ON b.id = d.brand_id
      LEFT JOIN models m ON m.id = d.model_id
      LEFT JOIN shops os ON os.id = d.owner_shop_id
-     WHERE d.imei1 = $1 OR d.imei2 = $1
+     WHERE d.imei1 = $1 OR d.imei2 = $1 OR upper(d.serial_number) = upper($1)
      ${lock ? 'FOR UPDATE OF d' : ''}`,
-    [imei]
+    [identifier]
   );
   return rows[0] ?? null;
 }
@@ -45,19 +50,23 @@ export function ownershipFor(device, auth) {
 const REPORTED = new Set(['stolen', 'lost', 'blocked']);
 
 /** Résultat de la vérification préalable d'un IMEI (écran « Vérifier »). */
-export async function checkDevice(imei, auth) {
-  const device = await findDeviceByImei({ query }, imei);
+export async function checkDevice(identifier, auth) {
+  const device = await findDeviceByImei({ query }, identifier);
   const ownership = ownershipFor(device, auth);
   const reported = device ? REPORTED.has(device.status) : false;
+  const noun = device ? nounFor(device.device_type) : 'appareil';
   let message;
-  if (!device) message = 'IMEI inconnu du registre : aucun propriétaire enregistré.';
-  else if (reported) message = 'ALERTE : ce téléphone est signalé volé, perdu ou bloqué. Ne pas acheter.';
-  else if (ownership === 'person') message = 'Téléphone enregistré au nom d’un particulier : le vendeur doit être ce propriétaire.';
-  else if (ownership === 'this_shop' || ownership === 'my_org') message = 'Téléphone en stock dans votre organisation.';
-  else if (ownership === 'other_shop') message = 'Téléphone en stock dans une autre boutique.';
-  else message = 'Téléphone connu, sans propriétaire actuel.';
+  if (!device) message = 'Identifiant inconnu du registre : aucun propriétaire enregistré.';
+  else if (reported) message = `ALERTE : ce ${noun} est signalé volé, perdu ou bloqué. Ne pas acheter.`;
+  else if (ownership === 'person') message = `${noun[0].toUpperCase()}${noun.slice(1)} enregistré au nom d’un particulier : le vendeur doit être ce propriétaire.`;
+  else if (ownership === 'this_shop' || ownership === 'my_org') message = `${noun[0].toUpperCase()}${noun.slice(1)} en stock dans votre organisation.`;
+  else if (ownership === 'other_shop') message = `${noun[0].toUpperCase()}${noun.slice(1)} en stock dans une autre boutique.`;
+  else message = `${noun[0].toUpperCase()}${noun.slice(1)} connu, sans propriétaire actuel.`;
   return {
-    imei,
+    imei: identifier,
+    identifier,
+    device_type: device?.device_type ?? null,
+    serial_number: device?.serial_number ?? null,
     known: Boolean(device),
     status: device?.status ?? 'unknown',
     reported,
@@ -120,16 +129,28 @@ async function createDevice(client, dev, owner) {
       if (!b.rowCount) throw badRequest('INVALID_BRAND', 'Marque inconnue');
     }
   }
+  const deviceType = dev.device_type ?? 'phone';
+  const serial = dev.serial_number && dev.serial_number.trim() ? dev.serial_number.trim() : null;
+  // Identifiant selon le type : IMEI pour un téléphone, numéro de série sinon.
+  if (deviceType === 'phone') {
+    if (!dev.imei1) throw badRequest('IMEI_REQUIRED', 'L’IMEI est requis pour un téléphone');
+  } else if (!serial) {
+    throw badRequest('SERIAL_REQUIRED', 'Le numéro de série est requis pour cet appareil');
+  }
+  const imei1 = deviceType === 'phone' ? dev.imei1 : null;
+  const imei2 = deviceType === 'phone' ? (dev.imei2 ?? null) : null;
   const useFreeBrand = !dev.brand_id;
-  await assertImei2Free(client, dev.imei2, null);
+  await assertImei2Free(client, imei2, null);
   const { rows } = await client.query(
-    `INSERT INTO devices (imei1, imei2, brand_id, brand_label, model_id, model_label, color, storage_gb,
+    `INSERT INTO devices (imei1, imei2, device_type, serial_number, brand_id, brand_label, model_id, model_label, color, storage_gb,
                           owner_type, owner_shop_id, owner_person_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING id`,
     [
-      dev.imei1,
-      dev.imei2 ?? null,
+      imei1,
+      imei2,
+      deviceType,
+      serial,
       useFreeBrand ? null : dev.brand_id,
       useFreeBrand ? brandLabel : null,
       useFreeBrand ? null : (dev.model_id ?? null),
@@ -220,9 +241,10 @@ async function insertTransaction(client, t) {
 
 /** Entrée en stock d'un téléphone (neuf ou fournisseur professionnel). */
 export async function stockIn(req, shopId, body) {
-  const ctx = { imei: body.device.imei1, shopId, userId: req.auth.sub, details: { op: 'stock_in' } };
+  const identifier = body.device.imei1 || body.device.serial_number;
+  const ctx = { imei: identifier, shopId, userId: req.auth.sub, details: { op: 'stock_in' } };
   const txId = await withTransaction(async (c) => {
-    const device = await findDeviceByImei(c, body.device.imei1, { lock: true });
+    const device = await findDeviceByImei(c, identifier, { lock: true });
     assertNotReported(device, ctx);
     let deviceId;
     if (device) {
@@ -254,8 +276,9 @@ export async function stockIn(req, shopId, body) {
 
 /** Rachat d'un téléphone à un particulier : le vendeur doit être le propriétaire enregistré. */
 export async function purchase(req, shopId, body) {
+  const identifier = body.device.imei1 || body.device.serial_number;
   const ctx = {
-    imei: body.device.imei1,
+    imei: identifier,
     shopId,
     userId: req.auth.sub,
     details: {
@@ -264,7 +287,7 @@ export async function purchase(req, shopId, body) {
     }
   };
   const txId = await withTransaction(async (c) => {
-    const device = await findDeviceByImei(c, body.device.imei1, { lock: true });
+    const device = await findDeviceByImei(c, identifier, { lock: true });
     assertNotReported(device, ctx);
     const own = ownershipFor(device, req.auth);
     if (own === 'this_shop' || own === 'my_org') throw conflict('ALREADY_IN_STOCK', 'Ce téléphone est déjà dans votre stock');
@@ -363,9 +386,10 @@ async function activateGaranForBuyer(c, { person, deviceId, txId, orgId, shopId,
 
 /** Vente à un particulier : le téléphone passe au nom de l'acheteur. */
 export async function sale(req, shopId, body) {
-  const ctx = { imei: body.device.imei1, shopId, userId: req.auth.sub, details: { op: 'sale' } };
+  const identifier = body.device.imei1 || body.device.serial_number;
+  const ctx = { imei: identifier, shopId, userId: req.auth.sub, details: { op: 'sale' } };
   const result = await withTransaction(async (c) => {
-    const device = await findDeviceByImei(c, body.device.imei1, { lock: true });
+    const device = await findDeviceByImei(c, identifier, { lock: true });
     assertNotReported(device, ctx);
     const own = ownershipFor(device, req.auth);
     if (own === 'person') {
@@ -419,7 +443,8 @@ export async function sale(req, shopId, body) {
 const TX_SELECT = `
   SELECT t.id, t.receipt_number, t.verification_code, t.type, t.condition, t.price, t.currency,
          t.supplier_name, t.notes, t.occurred_at, t.shop_id, t.organization_id, t.payment_method,
-         json_build_object('id', d.id, 'imei1', d.imei1, 'imei2', d.imei2, 'brand', b.name,
+         json_build_object('id', d.id, 'imei1', d.imei1, 'imei2', d.imei2, 'device_type', d.device_type,
+                           'serial_number', d.serial_number, 'brand', b.name,
                            'model', COALESCE(m.name, d.model_label), 'color', d.color,
                            'storage_gb', d.storage_gb, 'status', d.status) AS device,
          json_build_object('id', s.id, 'name', s.name, 'phone', s.phone, 'city', s.city,

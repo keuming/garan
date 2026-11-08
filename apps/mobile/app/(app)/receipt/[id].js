@@ -20,8 +20,8 @@ function receiptHtml(t, qrSvg, barcodeSvg) {
   const rows = [
     ['Opération', LABELS.txType[t.type]],
     ['Date et heure', dateTime(t.occurred_at)],
-    ['Téléphone', `${t.device.brand ?? ''} ${t.device.model ?? ''}`],
-    ['IMEI 1', t.device.imei1],
+    ['Appareil', `${t.device.brand ?? ''} ${t.device.model ?? ''}`],
+    ...(t.device.imei1 ? [['IMEI 1', t.device.imei1]] : [['N° de série', t.device.serial_number ?? '—']]),
     ...(t.device.imei2 ? [['IMEI 2', t.device.imei2]] : []),
     ['État', LABELS.condition[t.condition]],
     ['Montant', fcfa(t.price)],
@@ -56,7 +56,7 @@ function receiptHtml(t, qrSvg, barcodeSvg) {
     ${esc(t.shop.phone)}${t.shop.rccm ? ` · RCCM ${esc(t.shop.rccm)}` : ''}
   </div>
   <table>${rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
-  <div class="barcode">${barcodeSvg}<div class="imei">${esc(t.device.imei1)}</div></div>
+  <div class="barcode">${t.device.imei1 ? `${barcodeSvg}<div class="imei">${esc(t.device.imei1)}</div>` : `<div class="imei">N° de série : ${esc(t.device.serial_number ?? '—')}</div>`}</div>
   ${t.type === 'sale' ? `<div class="qr">${qrSvg}<div><strong>Preuve de propriété</strong><br><span class="muted">Scannez ce code ou ouvrez ${esc(t.certificate_url)} pour vérifier que ce téléphone vous appartient, même sans le carton.</span></div></div>` : ''}
   </body></html>`;
 }
@@ -110,7 +110,7 @@ export default function Receipt() {
     });
   }
 
-  const barcode = t ? code128Svg(t.device.imei1, { height: 64, scale: 1.7 }) : null;
+  const barcode = t && t.device.imei1 ? code128Svg(t.device.imei1, { height: 64, scale: 1.7 }) : null;
 
   async function share() {
     setSharing(true);
@@ -160,10 +160,16 @@ export default function Receipt() {
       </Card>
 
       <Card style={{ alignItems: 'center', gap: 8 }}>
-        <Muted>IMEI du téléphone</Muted>
-        {barcode ? <SvgXml xml={barcode} width="100%" height={64} accessibilityLabel={`Code-barres IMEI ${t.device.imei1}`} /> : null}
-        <Text style={{ fontFamily: 'monospace', fontSize: 16, letterSpacing: 2, color: colors.ink }}>{t.device.imei1}</Text>
-        {t.device.imei2 ? <Text style={{ fontFamily: 'monospace', fontSize: 13, color: colors.ink2 }}>IMEI 2 : {t.device.imei2}</Text> : null}
+        <Muted>{t.device.imei1 ? 'IMEI du téléphone' : 'Numéro de série'}</Muted>
+        {t.device.imei1 ? (
+          <>
+            {barcode ? <SvgXml xml={barcode} width="100%" height={64} accessibilityLabel={`Code-barres IMEI ${t.device.imei1}`} /> : null}
+            <Text style={{ fontFamily: 'monospace', fontSize: 16, letterSpacing: 2, color: colors.ink }}>{t.device.imei1}</Text>
+            {t.device.imei2 ? <Text style={{ fontFamily: 'monospace', fontSize: 13, color: colors.ink2 }}>IMEI 2 : {t.device.imei2}</Text> : null}
+          </>
+        ) : (
+          <Text style={{ fontFamily: 'monospace', fontSize: 16, letterSpacing: 2, color: colors.ink }}>{t.device.serial_number ?? '—'}</Text>
+        )}
       </Card>
 
       {t.type === 'sale' ? (

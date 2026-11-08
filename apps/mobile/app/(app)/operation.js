@@ -47,8 +47,15 @@ function apiErrorText(e) {
   return e;
 }
 
+const DEVICE_TYPES = [
+  { value: 'phone', label: 'Téléphone' },
+  { value: 'computer', label: 'Ordinateur' },
+  { value: 'tablet', label: 'Tablette' },
+  { value: 'other', label: 'Autre appareil électronique' }
+];
+
 export default function Operation() {
-  const { type = 'sale' } = useLocalSearchParams();
+  const { type = 'sale', dtype = 'phone', ident } = useLocalSearchParams();
   const cfg = CONFIG[type] ?? CONFIG.sale;
   const { user, isOwner } = useAuth();
   const qc = useQueryClient();
@@ -56,11 +63,15 @@ export default function Operation() {
   const activeShops = (user?.shops ?? []).filter((s) => s.status === 'active');
   const [shopId, setShopId] = useState(activeShops.length === 1 ? activeShops[0].id : undefined);
 
-  const [imei1, setImei1] = useState('');
+  const [deviceType, setDeviceType] = useState(dtype);
+  const isPhone = deviceType === 'phone';
+  const [imei1, setImei1] = useState(dtype === 'phone' && ident ? String(ident) : '');
   const [imei2, setImei2] = useState('');
+  const [serial, setSerial] = useState(dtype !== 'phone' && ident ? String(ident) : '');
   const [dualSim, setDualSim] = useState(false);
   const [check, setCheck] = useState(null);
   const [device, setDevice] = useState({});
+  const identifier = isPhone ? imei1 : serial.trim();
 
   const [person, setPerson] = useState({ id_doc_type: 'CNI', id_doc_number: '', full_name: '', phone1: '', phone2: '', email: '' });
   const [known, setKnown] = useState(null); // résultat du préremplissage
@@ -71,10 +82,12 @@ export default function Operation() {
   const [price, setPrice] = useState('');
   const [supplier, setSupplier] = useState('');
 
-  useEffect(() => setCheck(null), [imei1]);
+  useEffect(() => setCheck(null), [imei1, serial, deviceType]);
 
   const verify = useMutation({
-    mutationFn: () => api.get(`/devices/check/${imei1}`),
+    mutationFn: () => isPhone
+      ? api.get(`/devices/check/${imei1}`)
+      : api.get('/devices/verify', { identifier: serial.trim() }),
     onSuccess: setCheck
   });
 
@@ -91,8 +104,10 @@ export default function Operation() {
       const body = {
         shop_id: shopId,
         device: {
-          imei1,
-          imei2: dualSim && imei2 ? imei2 : undefined,
+          device_type: deviceType,
+          ...(isPhone
+            ? { imei1, imei2: dualSim && imei2 ? imei2 : undefined }
+            : { serial_number: serial.trim() }),
           ...(check?.known ? {} : { ...device, storage_gb: device.storage_gb ? Number(device.storage_gb) : undefined })
         },
         condition,
@@ -112,7 +127,9 @@ export default function Operation() {
     }
   });
 
-  const imeiOk = isValidImei(imei1) && (!dualSim || !imei2 || (isValidImei(imei2) && imei2 !== imei1));
+  const imeiOk = isPhone
+    ? isValidImei(imei1) && (!dualSim || !imei2 || (isValidImei(imei2) && imei2 !== imei1))
+    : serial.trim().length >= 3;
   const blocked = check && !cfg.allowed(check);
   const needsDevice = check && !check.known;
   const deviceOk = !needsDevice || (device.brand_id && (device.model_id || device.model_label));
@@ -132,20 +149,27 @@ export default function Operation() {
         </Card>
       ) : null}
 
-      {/* 1. Téléphone */}
+      {/* 1. Appareil */}
       <Card>
-        <Muted>1. Téléphone</Muted>
-        <ImeiField label="IMEI 1" value={imei1} onChange={setImei1} />
-        <Segmented
-          value={dualSim ? 'dual' : 'single'}
-          onChange={(v) => setDualSim(v === 'dual')}
-          options={[{ value: 'single', label: 'Une SIM' }, { value: 'dual', label: 'Double SIM' }]}
-        />
-        {dualSim ? <ImeiField label="IMEI 2" value={imei2} onChange={setImei2} optional /> : null}
+        <Muted>1. Appareil</Muted>
+        <Select label="Type d’appareil" value={deviceType} options={DEVICE_TYPES} onChange={setDeviceType} />
+        {isPhone ? (
+          <>
+            <ImeiField label="IMEI 1" value={imei1} onChange={setImei1} />
+            <Segmented
+              value={dualSim ? 'dual' : 'single'}
+              onChange={(v) => setDualSim(v === 'dual')}
+              options={[{ value: 'single', label: 'Une SIM' }, { value: 'dual', label: 'Double SIM' }]}
+            />
+            {dualSim ? <ImeiField label="IMEI 2" value={imei2} onChange={setImei2} optional /> : null}
+          </>
+        ) : (
+          <Input label="Numéro de série" value={serial} onChangeText={setSerial} autoCapitalize="characters" placeholder="N° de série de l’appareil" />
+        )}
         <Button title="Vérifier dans le registre" onPress={() => verify.mutate()} loading={verify.isPending} disabled={!imeiOk} />
         <ErrorBanner error={verify.error} />
         {check ? (
-          <Banner tone={check.reported || blocked ? 'danger' : check.known ? 'ok' : 'info'} title={check.reported ? 'TÉLÉPHONE SIGNALÉ' : blocked ? 'Opération impossible' : 'Vérification OK'}>
+          <Banner tone={check.reported || blocked ? 'danger' : check.known ? 'ok' : 'info'} title={check.reported ? 'APPAREIL SIGNALÉ' : blocked ? 'Opération impossible' : 'Vérification OK'}>
             {check.message}
             {check.known && check.brand ? `\n${check.brand} ${check.model ?? ''}` : ''}
           </Banner>
@@ -212,7 +236,7 @@ export default function Operation() {
           {cfg.person && person.full_name ? (
             <Card>
               <Muted>Récapitulatif</Muted>
-              <Row label="IMEI" value={imei1} mono />
+              <Row label={isPhone ? 'IMEI' : 'N° de série'} value={identifier} mono />
               <Row label={cfg.person} value={person.full_name} />
               <Row label="Pièce" value={`${LABELS.docType[person.id_doc_type]} ${person.id_doc_number}`} />
               <Row label="Montant" value={price ? `${Number(price).toLocaleString('fr-FR')} FCFA` : '—'} />

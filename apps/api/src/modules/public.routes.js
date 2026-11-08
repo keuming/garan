@@ -55,7 +55,7 @@ publicRouter.get(
   async (req, res) => {
     const { rows } = await query(
       `SELECT t.receipt_number, t.type, t.condition, t.occurred_at, t.device_id, t.person_id,
-              d.imei1, d.status AS device_status, d.owner_type, d.owner_person_id,
+              d.imei1, d.device_type, d.serial_number, d.status AS device_status, d.owner_type, d.owner_person_id,
               COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model,
               s.name AS shop_name, s.city AS shop_city, s.district AS shop_district,
               p.full_name
@@ -75,7 +75,7 @@ publicRouter.get(
       receipt_number: t.receipt_number,
       sold_at: t.occurred_at,
       condition: t.condition,
-      device: { brand: t.brand, model: t.model, imei: maskImei(t.imei1), status: t.device_status },
+      device: { brand: t.brand, model: t.model, device_type: t.device_type, imei: t.imei1 ? maskImei(t.imei1) : null, serial_number: t.serial_number ?? null, status: t.device_status },
       shop: { name: t.shop_name, city: t.shop_city, district: t.shop_district },
       buyer: maskName(t.full_name),
       is_current_owner: t.owner_type === 'person' && t.owner_person_id === t.person_id
