@@ -1,5 +1,8 @@
 /* Service worker gaRAN PWA : installabilité, cache réseau-d'abord, mise à jour sur action. */
-const CACHE = 'garan-pwa-v1';
+/* __BUILD_ID__ est remplacé à la compilation (scripts/inject-pwa.mjs) : le fichier change
+   d'octets à chaque déploiement, condition pour que le navigateur détecte une nouvelle version. */
+const BUILD = '__BUILD_ID__';
+const CACHE = 'garan-pwa-' + BUILD;
 
 self.addEventListener('install', () => {
   // On n'active pas tout de suite : l'utilisateur déclenche la mise à jour via le bouton.

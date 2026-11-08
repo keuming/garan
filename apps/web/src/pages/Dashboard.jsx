@@ -47,6 +47,34 @@ export function Dashboard() {
         <Kpi label="À traiter" value={num(d.theft_reports_pending + d.alerts_open)} hint={`${num(d.theft_reports_pending)} déclarations · ${num(d.alerts_open)} alertes`} to="/declarations" />
       </div>
 
+      {d.balances ? (
+        <div className="card">
+          <h2>Soldes encaissés</h2>
+          <div className="kpis">
+            <Kpi
+              label="Mise en service — usagers"
+              value={fcfa(d.balances.setup_consumer_fcfa)}
+              hint="Frais de mise en service encaissés"
+            />
+            <Kpi
+              label="Mise en service — marchands"
+              value={fcfa(d.balances.setup_merchant_fcfa)}
+              hint="Frais de mise en service encaissés"
+            />
+            <Kpi
+              label="Abonnement mensuel — usagers"
+              value={fcfa(d.balances.subscription_consumer_fcfa)}
+              hint="Abonnements téléphone encaissés"
+            />
+            <Kpi
+              label="Abonnement mensuel — marchands"
+              value={fcfa(d.balances.subscription_merchant_fcfa)}
+              hint="Abonnements compte marchand encaissés"
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className="card">
         <h2>Opérations des 14 derniers jours</h2>
         <div className="bars" role="img" aria-label="Ventes et rachats par jour sur 14 jours">

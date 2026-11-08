@@ -5,6 +5,28 @@
 //  - l'enregistrement du service worker (mises à jour sans réinstallation).
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
+
+// Identifiant de build unique : horodatage + court SHA git si disponible.
+// Il est tamponné dans dist/sw.js pour que le fichier diffère d'octets à chaque
+// déploiement — sans quoi le navigateur ne détecte jamais de nouvelle version.
+let gitSha = '';
+try { gitSha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { /* hors dépôt */ }
+const BUILD_ID = `${Date.now()}${gitSha ? '-' + gitSha : ''}`;
+
+// 1) Tamponner le service worker.
+const swFile = path.resolve('dist/sw.js');
+if (fs.existsSync(swFile)) {
+  let sw = fs.readFileSync(swFile, 'utf8');
+  if (sw.includes('__BUILD_ID__')) {
+    sw = sw.split('__BUILD_ID__').join(BUILD_ID);
+  } else if (!sw.includes('/* build:')) {
+    // Filet de sécurité si le token a disparu : un commentaire suffit à changer les octets.
+    sw = `/* build: ${BUILD_ID} */\n${sw}`;
+  }
+  fs.writeFileSync(swFile, sw);
+  console.log(`[inject-pwa] Service worker versionné (build ${BUILD_ID}).`);
+}
 
 const file = path.resolve('dist/index.html');
 let html = fs.readFileSync(file, 'utf8');
@@ -29,7 +51,11 @@ if (!html.includes('garan-web-shell')) {
 `;
   html = html.replace('</head>', `${headInject}  </head>`);
 
-  const swScript = `<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').then(function(reg){setInterval(function(){reg.update();},3600000);}).catch(function(){});});}</script>`;
+  // Enregistrement du service worker + vérifications de mise à jour.
+  // updateViaCache:'none' force le navigateur à re-télécharger sw.js depuis le réseau
+  // à chaque reg.update() (sinon il peut servir l'ancien sw.js depuis son cache HTTP).
+  // On vérifie au chargement, au retour sur l'onglet, et toutes les 30 min.
+  const swScript = `<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'}).then(function(reg){function u(){try{reg.update();}catch(e){}}u();setInterval(u,1800000);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')u();});}).catch(function(){});});}</script>`;
   html = html.replace('</body>', `${swScript}</body>`);
 
   fs.writeFileSync(file, html);

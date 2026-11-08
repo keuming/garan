@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
 import { colors, radius } from '../lib/theme';
 
@@ -18,29 +18,37 @@ export function UpdateBanner() {
 
     if (Platform.OS === 'web') {
       if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+      // Un nouveau service worker « installé » alors qu'un contrôleur existe déjà
+      // = nouvelle version prête à activer → on propose la mise à jour.
+      const watch = (sw) => {
+        if (!sw) return;
+        const check = () => {
+          if (!cancel && sw.state === 'installed' && navigator.serviceWorker.controller) setAvailable(true);
+        };
+        check();
+        sw.addEventListener('statechange', check);
+      };
       navigator.serviceWorker.getRegistration().then((reg) => {
         if (!reg || cancel) return;
-        if (reg.waiting) setAvailable(true);
-        reg.addEventListener('updatefound', () => {
-          const sw = reg.installing;
-          if (!sw) return;
-          sw.addEventListener('statechange', () => {
-            if (sw.state === 'installed' && navigator.serviceWorker.controller) setAvailable(true);
-          });
-        });
+        if (reg.waiting && navigator.serviceWorker.controller) setAvailable(true);
+        if (reg.installing) watch(reg.installing);           // installation déjà en cours
+        reg.addEventListener('updatefound', () => watch(reg.installing)); // installations futures
+        reg.update().catch(() => {});                         // force une vérification immédiate
       });
       return () => { cancel = true; };
     }
 
-    // Natif : vérifie une mise à jour OTA au démarrage (désactivé en dev).
-    (async () => {
+    // Natif : vérifie une mise à jour OTA au démarrage puis à chaque retour au premier plan.
+    const checkNative = async () => {
       try {
         if (!Updates.isEnabled) return;
         const u = await Updates.checkForUpdateAsync();
         if (!cancel && u.isAvailable) setAvailable(true);
       } catch { /* hors ligne ou indisponible : on ignore */ }
-    })();
-    return () => { cancel = true; };
+    };
+    checkNative();
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') checkNative(); });
+    return () => { cancel = true; sub?.remove?.(); };
   }, []);
 
   async function apply() {
