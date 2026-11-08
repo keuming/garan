@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { router } from 'expo-router';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,6 +20,8 @@ export default function History() {
   const [type, setType] = useState('');
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
+  const { width } = useWindowDimensions();
+  const maxWidth = width >= 1100 ? 980 : width >= 760 ? 720 : null;
 
   const query = useInfiniteQuery({
     queryKey: ['transactions', type, search],
@@ -35,7 +37,7 @@ export default function History() {
       <FlatList
         data={items}
         keyExtractor={(t) => t.id}
-        contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}
+        contentContainerStyle={[{ padding: 16, gap: 10, paddingBottom: 40 }, maxWidth ? { maxWidth, width: '100%', alignSelf: 'center' } : null]}
         onRefresh={() => query.refetch()}
         refreshing={query.isRefetching}
         onEndReachedThreshold={0.4}

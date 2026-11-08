@@ -11,22 +11,30 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radius, shadow } from '../lib/theme';
 
 export function Screen({ children, scroll = true, refreshing, onRefresh, contentStyle }) {
+  // Largeur de contenu adaptable : pleine largeur sur téléphone, colonne centrée
+  // plus large sur tablette, et plus large encore sur ordinateur.
+  const { width } = useWindowDimensions();
+  const maxWidth = width >= 1100 ? 980 : width >= 760 ? 720 : null;
+  const inner = [s.screen, maxWidth ? { maxWidth, width: '100%', alignSelf: 'center' } : null, contentStyle];
   const body = scroll ? (
     <ScrollView
-      contentContainerStyle={[s.screen, contentStyle]}
+      contentContainerStyle={[s.screenScroll, maxWidth ? { alignItems: 'center' } : null]}
       keyboardShouldPersistTaps="handled"
       refreshControl={onRefresh ? <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} tintColor={colors.blue} /> : undefined}
     >
-      {children}
+      <View style={inner}>{children}</View>
     </ScrollView>
   ) : (
-    <View style={[s.screen, { flex: 1 }, contentStyle]}>{children}</View>
+    <View style={[{ flex: 1 }, maxWidth ? { alignItems: 'center' } : null]}>
+      <View style={[inner, { flex: 1 }]}>{children}</View>
+    </View>
   );
   return (
     <SafeAreaView style={s.safe} edges={['bottom', 'left', 'right']}>
@@ -202,6 +210,7 @@ export function Row({ label, value, mono }) {
 
 export const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
+  screenScroll: { flexGrow: 1 },
   screen: { padding: 16, gap: 16, paddingBottom: 40 },
   title: { fontSize: 22, fontWeight: '700', color: colors.ink },
   sub: { fontSize: 14, color: colors.ink2 },

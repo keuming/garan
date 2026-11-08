@@ -45,8 +45,13 @@ if (!html.includes('garan-web-shell')) {
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="gaRAN" />
     <style id="garan-web-shell">
-      html, body { margin: 0; padding: 0; height: 100%; background: #0C2F23; }
-      #root { width: 100%; max-width: 480px; margin: 0 auto; min-height: 100vh; background: #F3F8F5; box-shadow: 0 0 60px rgba(0,0,0,0.35); }
+      /* Coque adaptable : plein écran sur téléphone, canevas centré plus large
+         sur tablette et ordinateur (la largeur du contenu est gérée par l'app). */
+      html, body { margin: 0; padding: 0; min-height: 100%; background: #0C2F23; }
+      #root { width: 100%; margin: 0 auto; min-height: 100vh; background: #F3F8F5; }
+      @media (min-width: 760px) {
+        #root { max-width: 1120px; box-shadow: 0 0 60px rgba(0,0,0,0.25); }
+      }
     </style>
 `;
   html = html.replace('</head>', `${headInject}  </head>`);
