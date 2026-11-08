@@ -76,6 +76,10 @@ export default function BdSpace() {
 
   const openUrl = (u) => Linking.openURL(u).catch(() => Alert.alert('Ouverture impossible', 'Aucune application disponible pour ouvrir ce lien.'));
 
+  const code = data.promo_code;
+  const inviteLink = `https://apps.garan.solutions/?code=${code}`;
+  const inviteMsg = `Protège ton téléphone contre le vol avec gaRAN. Clique ici pour créer ton compte (ton code promo ${code} est déjà prérempli) : ${inviteLink}`;
+
   return (
     <>
       <Stack.Screen options={{ title: 'Mon espace BD' }} />
@@ -91,6 +95,19 @@ export default function BdSpace() {
           <Text style={{ fontSize: 12, color: colors.ink3 }}>
             {s.usagers ?? 0} usagers · {s.marchands ?? 0} marchands · déjà reversé {nf(s.paid_fcfa ?? 0)} F
           </Text>
+        </Card>
+
+        {/* Partage du code promo */}
+        <Card style={{ gap: 10, marginBottom: 12 }}>
+          <Muted>Partager mon code promo</Muted>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 28, fontWeight: '900', letterSpacing: 4, color: colors.green }}>{code}</Text>
+          </View>
+          <Text style={{ color: colors.ink2, fontSize: 12.5 }}>
+            Le lien ouvre directement la création de compte, avec votre code déjà prérempli — votre filleul n’a plus qu’à choisir son profil.
+          </Text>
+          <Button title="Partager sur WhatsApp" onPress={() => openUrl('https://wa.me/?text=' + encodeURIComponent(inviteMsg))} />
+          <Button title="Partager par SMS" variant="secondary" onPress={() => openUrl('sms:?body=' + encodeURIComponent(inviteMsg))} />
         </Card>
 
         {/* Demande de reversement */}

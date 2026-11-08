@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 import { Loading, Wordmark } from '../src/components/ui';
 import { useAuth } from '../src/lib/auth';
@@ -6,6 +6,7 @@ import { colors } from '../src/lib/theme';
 
 export default function Index() {
   const { ready, isConsumer, isMerchant } = useAuth();
+  const { code } = useLocalSearchParams();
   if (!ready) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, gap: 16 }}>
@@ -16,5 +17,6 @@ export default function Index() {
   }
   if (isConsumer) return <Redirect href="/(consumer)/home" />;
   if (isMerchant) return <Redirect href="/home" />;
-  return <Redirect href="/welcome" />;
+  const promo = String(code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+  return <Redirect href={promo ? `/welcome?code=${promo}` : '/welcome'} />;
 }

@@ -6,10 +6,12 @@ import { useAuth } from '../../src/lib/auth';
 const COUNTRIES = ["Côte d'Ivoire", 'Burkina Faso', 'Mali', 'Sénégal', 'Togo', 'Bénin', 'Niger', 'Guinée', 'Cameroun', 'Gabon'].map((c) => ({ value: c, label: c }));
 const LABEL = { consumer: 'Usager', merchant: 'Marchand', super_merchant: 'Super marchand' };
 
+const cleanPromo = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+
 /* ------------------------------ Usager ------------------------------ */
-function ConsumerRegister() {
+function ConsumerRegister({ promo = '' }) {
   const { registerConsumer } = useAuth();
-  const [f, setF] = useState({ full_name: '', phone: '', email: '', pin: '', pin2: '', promo_code: '' });
+  const [f, setF] = useState({ full_name: '', phone: '', email: '', pin: '', pin2: '', promo_code: cleanPromo(promo) });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const set = (k) => (v) => setF({ ...f, [k]: v });
@@ -31,6 +33,7 @@ function ConsumerRegister() {
     <Screen>
       <Title sub="Créez votre compte pour enregistrer et protéger vos téléphones.">Compte usager</Title>
       <ErrorBanner error={error} />
+      {f.promo_code ? <Banner tone="ok" title="Vous avez été recommandé(e)">{`Code promo ${f.promo_code} appliqué — votre parrain sera crédité.`}</Banner> : null}
       <Card>
         <Input label="Nom et prénoms" value={f.full_name} onChangeText={set('full_name')} autoCapitalize="words" />
         <Input label="Numéro de téléphone (identifiant)" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" />
@@ -45,9 +48,9 @@ function ConsumerRegister() {
 }
 
 /* --------------------- Marchand / Super marchand --------------------- */
-function MerchantRegister({ type }) {
+function MerchantRegister({ type, promo = '' }) {
   const { registerMerchant } = useAuth();
-  const [f, setF] = useState({ country: "Côte d'Ivoire", city: '', district: '', shop_name: '', contact_phone: '', email: '', rccm: '', login_phone: '', pin: '', pin2: '', promo_code: '' });
+  const [f, setF] = useState({ country: "Côte d'Ivoire", city: '', district: '', shop_name: '', contact_phone: '', email: '', rccm: '', login_phone: '', pin: '', pin2: '', promo_code: cleanPromo(promo) });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const set = (k) => (v) => setF({ ...f, [k]: v });
@@ -73,6 +76,7 @@ function MerchantRegister({ type }) {
         {superM ? 'Compte super marchand' : 'Compte marchand'}
       </Title>
       <ErrorBanner error={error} />
+      {f.promo_code ? <Banner tone="ok" title="Vous avez été recommandé(e)">{`Code promo ${f.promo_code} appliqué — votre parrain sera crédité.`}</Banner> : null}
       <Card>
         <Muted>Localisation</Muted>
         <Select label="Pays" value={f.country} options={COUNTRIES} onChange={set('country')} />
@@ -100,7 +104,7 @@ function MerchantRegister({ type }) {
 }
 
 export default function Register() {
-  const { profile = 'consumer' } = useLocalSearchParams();
-  if (profile === 'consumer') return <ConsumerRegister />;
-  return <MerchantRegister type={profile === 'super_merchant' ? 'super_merchant' : 'merchant'} />;
+  const { profile = 'consumer', promo } = useLocalSearchParams();
+  if (profile === 'consumer') return <ConsumerRegister promo={promo} />;
+  return <MerchantRegister type={profile === 'super_merchant' ? 'super_merchant' : 'merchant'} promo={promo} />;
 }

@@ -96,8 +96,8 @@ function BusinessDeveloperCard() {
   if (bd.status === 'active') {
     const code = bd.promo_code;
     const s = bd.stats ?? {};
-    const link = 'https://apps.garan.solutions';
-    const msg = `Protège ton téléphone contre le vol avec gaRAN. Utilise mon code promo ${code} à l'inscription : ${link}`;
+    const link = `https://apps.garan.solutions/?code=${code}`;
+    const msg = `Protège ton téléphone contre le vol avec gaRAN. Clique ici pour créer ton compte (ton code promo ${code} est déjà prérempli) : ${link}`;
     const openUrl = (u) => Linking.openURL(u).catch(() => Alert.alert('Partage impossible', 'Application de partage introuvable sur cet appareil.'));
     return (
       <Card style={{ gap: 12, borderWidth: 1, borderColor: colors.green }}>
