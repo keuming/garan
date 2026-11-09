@@ -7,7 +7,7 @@
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://garan-api.onrender.com",
-        "EXPO_PUBLIC_WEB_URL": "https://garan.orzayah.com"
+        "EXPO_PUBLIC_WEB_URL": "https://boutique.garan.solutions"
       }
     },
     "production": {
@@ -16,7 +16,7 @@
       "android": { "buildType": "app-bundle" },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://garan-api.onrender.com",
-        "EXPO_PUBLIC_WEB_URL": "https://garan.orzayah.com"
+        "EXPO_PUBLIC_WEB_URL": "https://boutique.garan.solutions"
       }
     }
   },

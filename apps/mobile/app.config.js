@@ -48,7 +48,7 @@ export default {
     experiments: { typedRoutes: false },
     extra: {
       apiUrl: process.env.EXPO_PUBLIC_API_URL ?? 'https://garan-api.onrender.com',
-      publicWebUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://garan.orzayah.com',
+      publicWebUrl: process.env.EXPO_PUBLIC_WEB_URL ?? 'https://boutique.garan.solutions',
       eas: { projectId: EAS_PROJECT_ID || undefined }
     }
   }

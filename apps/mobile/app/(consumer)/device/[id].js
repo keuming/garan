@@ -13,7 +13,7 @@ import { date, dateTime } from '../../../src/lib/format';
 import { colors } from '../../../src/lib/theme';
 import { certificateHtml, certifiedReceiptHtml } from '../../../src/lib/certificate';
 
-const WEB_URL = (Constants.expoConfig?.extra?.publicWebUrl || 'https://garan.orzayah.com').replace(/\/$/, '');
+const WEB_URL = (Constants.expoConfig?.extra?.publicWebUrl || 'https://boutique.garan.solutions').replace(/\/$/, '');
 
 export default function ConsumerDevice() {
   const { id } = useLocalSearchParams();
