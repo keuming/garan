@@ -99,8 +99,8 @@ export default function Sale() {
   const step1Ok = check && !blocked && deviceOk;
 
   const docReady = person.id_doc_number.trim().length >= 4;
-  const photosOk = (frontKey && backKey) || known?.person?.has_id_photos;
-  const step2Ok = docReady && person.full_name.trim() && person.phone1 && person.phone2 && photosOk;
+  // Photos de la pièce facultatives : le numéro de la pièce suffit pour valider la vente.
+  const step2Ok = docReady && person.full_name.trim() && person.phone1 && person.phone2;
 
   const shopOk = shopId || !isOwner || activeShops.length === 1;
   const garanOk = !garanOn || garanPin === '' || /^\d{4}$/.test(garanPin);
@@ -218,9 +218,10 @@ export default function Sale() {
             />
             {docReady ? (
               <>
+                <Muted>Photos de la pièce (facultatif) — recommandées pour sécuriser la vente.</Muted>
                 <View style={{ flexDirection: 'row', gap: 12 }}>
-                  <IdPhotoField label="Recto" uploadedKey={frontKey} onUploaded={setFrontKey} />
-                  <IdPhotoField label="Verso" uploadedKey={backKey} onUploaded={setBackKey} />
+                  <IdPhotoField label="Recto (facultatif)" uploadedKey={frontKey} onUploaded={setFrontKey} />
+                  <IdPhotoField label="Verso (facultatif)" uploadedKey={backKey} onUploaded={setBackKey} />
                 </View>
                 {known?.person?.has_id_photos && !(frontKey && backKey) ? <Muted>Photos déjà au dossier : mettez-les à jour si la pièce a changé.</Muted> : null}
                 <Input label="Nom complet" value={person.full_name} onChangeText={(t) => setPerson({ ...person, full_name: t })} autoCapitalize="words" />
@@ -228,7 +229,7 @@ export default function Sale() {
                 <Input label="Contact 2" value={person.phone2} onChangeText={(t) => setPerson({ ...person, phone2: t })} keyboardType="phone-pad" />
                 <Input label="E-mail (facultatif)" value={person.email} onChangeText={(t) => setPerson({ ...person, email: t })} keyboardType="email-address" autoCapitalize="none" />
               </>
-            ) : <Muted>Saisissez le numéro de la pièce pour photographier le recto et le verso.</Muted>}
+            ) : <Muted>Saisissez le numéro de la pièce d’identité de l’acheteur pour continuer.</Muted>}
           </Card>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1 }}><Button title="Retour" variant="secondary" onPress={() => setStep(1)} /></View>
