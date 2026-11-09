@@ -106,7 +106,12 @@ async function uploadTo(path, uri) {
   const f = new FormData();
   if (Platform.OS === 'web') {
     // Sur le web (PWA), FormData n'accepte pas { uri } : il faut un vrai Blob.
-    const blob = await (await fetch(uri)).blob();
+    let blob;
+    try {
+      blob = await (await fetch(uri)).blob();
+    } catch {
+      throw new ApiError(0, 'IMAGE', 'Impossible de lire l’image sélectionnée. Reprenez la photo et réessayez.');
+    }
     f.append('file', blob, 'photo.jpg');
   } else {
     f.append('file', { uri, name: 'photo.jpg', type: 'image/jpeg' });

@@ -24,7 +24,13 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  // Ne jamais intercepter les schémas non http(s) : les URL blob: et data: (ex. une image
+  // sélectionnée qu'on lit via fetch avant l'envoi) ont le même « origin » mais ne sont pas
+  // cacheables ; les capter casse la lecture de l'image et fait échouer l'upload.
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+  if (url.origin !== self.location.origin) return;
   event.respondWith(
     fetch(req)
       .then((res) => {
