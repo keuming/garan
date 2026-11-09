@@ -95,7 +95,7 @@ export default function Sale() {
     : serial.trim().length >= 3;
   const blocked = check && !check.can_sell;
   const needsDevice = check && !check.known;
-  const deviceOk = !needsDevice || (device.brand_id && (device.model_id || device.model_label));
+  const deviceOk = !needsDevice || ((device.brand_id || device.brand_label) && (device.model_id || device.model_label));
   const step1Ok = check && !blocked && deviceOk;
 
   const docReady = person.id_doc_number.trim().length >= 4;
@@ -113,7 +113,7 @@ export default function Sale() {
         device: {
           device_type: deviceType,
           ...(isPhone ? { imei1, imei2: dualSim && imei2 ? imei2 : undefined } : { serial_number: serial.trim() }),
-          ...(check?.known ? {} : { brand_id: device.brand_id, model_id: device.model_id, model_label: device.model_label })
+          ...(check?.known ? {} : { brand_id: device.brand_id, brand_label: device.brand_label, model_id: device.model_id, model_label: device.model_label })
         },
         person: { ...person, id_doc_front_key: frontKey ?? undefined, id_doc_back_key: backKey ?? undefined },
         condition,
@@ -193,7 +193,7 @@ export default function Sale() {
 
           {check && !blocked && needsDevice && !listing ? (
             <Card>
-              <Muted>Modèle du téléphone</Muted>
+              <Muted>Marque et modèle</Muted>
               <BrandModelPicker value={device} onChange={setDevice} />
             </Card>
           ) : null}
@@ -293,7 +293,7 @@ export default function Sale() {
 
           <Card>
             <Muted>Récapitulatif</Muted>
-            <Row label="Téléphone" value={check?.known ? `${check.brand ?? ''} ${check.model ?? ''}`.trim() : listing?.title ?? '—'} />
+            <Row label={isPhone ? 'Téléphone' : 'Appareil'} value={check?.known ? `${check.brand ?? ''} ${check.model ?? ''}`.trim() : (listing?.title || `${device.brand_label ?? ''} ${device.model_label ?? ''}`.trim() || '—')} />
             <Row label={isPhone ? 'IMEI' : 'N° de série'} value={isPhone ? imei1 : serial.trim()} mono />
             <Row label="Acheteur" value={person.full_name || '—'} />
             <Row label="Montant" value={price ? fcfa(price) : '—'} />

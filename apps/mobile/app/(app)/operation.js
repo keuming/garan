@@ -132,7 +132,7 @@ export default function Operation() {
     : serial.trim().length >= 3;
   const blocked = check && !cfg.allowed(check);
   const needsDevice = check && !check.known;
-  const deviceOk = !needsDevice || (device.brand_id && (device.model_id || device.model_label));
+  const deviceOk = !needsDevice || ((device.brand_id || device.brand_label) && (device.model_id || device.model_label));
   const docReady = person.id_doc_number.trim().length >= 4;
   const photosOk = (frontKey && backKey) || known?.person?.has_id_photos;
   const personOk = !cfg.person || (docReady && person.full_name.trim() && person.phone1 && person.phone2 && photosOk);

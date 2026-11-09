@@ -444,7 +444,7 @@ const TX_SELECT = `
   SELECT t.id, t.receipt_number, t.verification_code, t.type, t.condition, t.price, t.currency,
          t.supplier_name, t.notes, t.occurred_at, t.shop_id, t.organization_id, t.payment_method,
          json_build_object('id', d.id, 'imei1', d.imei1, 'imei2', d.imei2, 'device_type', d.device_type,
-                           'serial_number', d.serial_number, 'brand', b.name,
+                           'serial_number', d.serial_number, 'brand', COALESCE(b.name, d.brand_label),
                            'model', COALESCE(m.name, d.model_label), 'color', d.color,
                            'storage_gb', d.storage_gb, 'status', d.status) AS device,
          json_build_object('id', s.id, 'name', s.name, 'phone', s.phone, 'city', s.city,
