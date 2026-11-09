@@ -92,12 +92,13 @@ listingsRouter.get(
 /* ---------------------------- Photo (upload) --------------------------- */
 
 listingsRouter.post('/photo', requireActiveSubscription, (req, res, next) => { requireOwnerRole(req); next(); }, upload.single('file'), async (req, res) => {
-  if (!req.file) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
-  const mime = sniff(req.file.buffer);
+  const buffer = req.file?.buffer || (req.body?.data_base64 ? Buffer.from(String(req.body.data_base64), 'base64') : null);
+  if (!buffer) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
+  const mime = sniff(buffer);
   if (!mime) throw badRequest('INVALID_FILE_TYPE', 'Image JPEG, PNG ou WebP attendue');
   const now = new Date();
   const key = `listings/${req.auth.orgId}/${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.${ALLOWED[mime]}`;
-  await storage.put(key, req.file.buffer, mime);
+  await storage.put(key, buffer, mime);
   res.status(201).json({ key, photo_url: photoUrl(key) });
 });
 

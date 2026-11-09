@@ -38,7 +38,12 @@ export function createApp() {
       maxAge: 600
     })
   );
-  app.use(express.json({ limit: '200kb' }));
+  // Corps JSON : 200ko par défaut ; limite élargie pour les routes d'upload d'image
+  // (envoi en base64, fiable sur iOS Safari/PWA là où le multipart cross-origin échoue).
+  const jsonSmall = express.json({ limit: '200kb' });
+  const jsonUpload = express.json({ limit: '12mb' });
+  const UPLOAD_PATH = /\/(id-document|photo|uploads)$/;
+  app.use((req, res, next) => (UPLOAD_PATH.test(req.path) ? jsonUpload : jsonSmall)(req, res, next));
   app.use(
     pinoHttp({
       logger,

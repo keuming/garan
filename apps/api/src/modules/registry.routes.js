@@ -137,12 +137,13 @@ function sniffImage(buf) {
 }
 
 registryRouter.post('/uploads/id-document', requireActiveSubscription, upload.single('file'), async (req, res) => {
-  if (!req.file) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
-  const mime = sniffImage(req.file.buffer);
+  const buffer = req.file?.buffer || (req.body?.data_base64 ? Buffer.from(String(req.body.data_base64), 'base64') : null);
+  if (!buffer) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
+  const mime = sniffImage(buffer);
   if (!mime || !ALLOWED_MIME[mime]) throw badRequest('INVALID_FILE_TYPE', 'Image JPEG, PNG ou WebP attendue');
   const now = new Date();
   const key = `id-docs/${req.auth.orgId}/${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.${ALLOWED_MIME[mime]}`;
-  await storage.put(key, req.file.buffer, mime);
+  await storage.put(key, buffer, mime);
   res.status(201).json({ key });
 });
 

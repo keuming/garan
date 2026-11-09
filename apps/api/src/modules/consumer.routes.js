@@ -334,12 +334,13 @@ function sniff(buf) {
 }
 
 consumerRouter.post('/uploads', requireConsumer, upload.single('file'), async (req, res) => {
-  if (!req.file) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
-  const mime = sniff(req.file.buffer);
+  const buffer = req.file?.buffer || (req.body?.data_base64 ? Buffer.from(String(req.body.data_base64), 'base64') : null);
+  if (!buffer) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
+  const mime = sniff(buffer);
   if (!mime) throw badRequest('INVALID_FILE_TYPE', 'Image (JPEG, PNG, WebP) ou PDF attendu');
   const now = new Date();
   const key = `consumer-docs/${req.auth.sub}/${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.${ALLOWED[mime]}`;
-  await storage.put(key, req.file.buffer, mime);
+  await storage.put(key, buffer, mime);
   res.status(201).json({ key });
 });
 

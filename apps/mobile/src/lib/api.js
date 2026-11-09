@@ -102,35 +102,38 @@ const qs = (params = {}) => {
   return parts.length ? `?${parts.join('&')}` : '';
 };
 
-function base64ToBlob(b64, type = 'image/jpeg') {
-  const bin = (globalThis.atob || ((s) => Buffer.from(s, 'base64').toString('binary')))(b64);
-  const len = bin.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type });
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = () => reject(new Error('read'));
+    r.readAsDataURL(blob);
+  });
 }
 
 /**
  * Téléverse une image. `input` est soit une URI (natif), soit { base64 } (web/PWA).
- * Sur le web on construit le Blob à partir du base64 : fiable sur iOS Safari/PWA,
- * là où lire une URL blob: via fetch peut échouer (Blob révoqué) et faire croire
- * à une perte de connexion.
+ * Web/PWA : on envoie l'image en JSON base64 (POST JSON, fiable sur iOS Safari/PWA),
+ * car l'envoi multipart cross-origin y échoue souvent sans jamais atteindre le serveur.
+ * Natif : envoi multipart classique par URI.
  */
 async function uploadTo(path, input) {
-  const f = new FormData();
   const base64 = input && typeof input === 'object' ? input.base64 : null;
   const uri = typeof input === 'string' ? input : input?.uri;
   if (Platform.OS === 'web') {
-    let blob;
-    try {
-      blob = base64 ? base64ToBlob(base64) : await (await fetch(uri)).blob();
-    } catch {
-      throw new ApiError(0, 'IMAGE', 'Impossible de lire l’image sélectionnée. Reprenez la photo et réessayez.');
+    let b64 = base64;
+    if (!b64) {
+      try {
+        b64 = await blobToBase64(await (await fetch(uri)).blob());
+      } catch {
+        throw new ApiError(0, 'IMAGE', 'Impossible de lire l’image sélectionnée. Reprenez la photo et réessayez.');
+      }
     }
-    f.append('file', blob, 'photo.jpg');
-  } else {
-    f.append('file', { uri, name: 'photo.jpg', type: 'image/jpeg' });
+    const { key } = await request(path, { method: 'POST', body: { data_base64: b64 } });
+    return key;
   }
+  const f = new FormData();
+  f.append('file', { uri, name: 'photo.jpg', type: 'image/jpeg' });
   const { key } = await request(path, { method: 'POST', form: f });
   return key;
 }
