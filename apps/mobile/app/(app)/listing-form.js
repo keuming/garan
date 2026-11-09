@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BrandModelPicker } from '../../src/components/BrandModelPicker';
 import { IdPhotoField } from '../../src/components/IdPhotoField';
 import { Banner, Button, Card, ErrorBanner, Input, Loading, Muted, Screen, Segmented, Title } from '../../src/components/ui';
-import { api } from '../../src/lib/api';
+import { api, mediaUrl } from '../../src/lib/api';
 
 export default function ListingForm() {
   const { id } = useLocalSearchParams();
@@ -95,7 +95,7 @@ export default function ListingForm() {
 
       <Card>
         <Muted>Photo de l’article</Muted>
-        <IdPhotoField label="Photo (une seule)" uploadedKey={f.photo_key} onUploaded={set('photo_key')} uploader={api.uploadListingPhoto} aspectRatio={1} />
+        <IdPhotoField label="Photo (une seule)" uploadedKey={f.photo_key} onUploaded={set('photo_key')} uploader={api.uploadListingPhoto} aspectRatio={1} remoteUrl={mediaUrl(f.photo_key)} />
       </Card>
 
       <Card>

@@ -11,7 +11,7 @@ import { Button, Label, Muted } from './ui';
  * L'image est redimensionnée (1600 px) et compressée avant envoi pour économiser la data mobile,
  * puis téléversée immédiatement : `onUploaded(key)` reçoit la clé de stockage.
  */
-export function IdPhotoField({ label, uploadedKey, onUploaded, uploader = api.uploadIdPhoto, aspectRatio = 1.58 }) {
+export function IdPhotoField({ label, uploadedKey, onUploaded, uploader = api.uploadIdPhoto, aspectRatio = 1.58, remoteUrl = null }) {
   const [uri, setUri] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -45,8 +45,8 @@ export function IdPhotoField({ label, uploadedKey, onUploaded, uploader = api.up
   return (
     <View style={{ gap: 8, flex: 1 }}>
       <Label>{label}</Label>
-      {uri ? (
-        <Image source={{ uri }} style={{ width: '100%', aspectRatio, borderRadius: radius.md, backgroundColor: colors.line }} accessibilityLabel={label} />
+      {uri || remoteUrl ? (
+        <Image source={{ uri: uri || remoteUrl }} style={{ width: '100%', aspectRatio, borderRadius: radius.md, backgroundColor: colors.line }} accessibilityLabel={label} />
       ) : (
         <View style={{ width: '100%', aspectRatio, borderRadius: radius.md, borderWidth: 2, borderStyle: 'dashed', borderColor: uploadedKey ? colors.ok : colors.line, alignItems: 'center', justifyContent: 'center' }}>
           <Muted>{uploadedKey ? '✓ Enregistrée' : 'Aucune photo'}</Muted>
