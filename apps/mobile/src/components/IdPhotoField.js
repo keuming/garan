@@ -30,8 +30,9 @@ export function IdPhotoField({ label, uploadedKey, onUploaded, uploader = api.up
     try {
       const asset = res.assets[0];
       const resize = asset.width > 1600 ? [{ resize: { width: 1600 } }] : [];
-      const small = await manipulateAsync(asset.uri, resize, { compress: 0.7, format: SaveFormat.JPEG });
-      const key = await uploader(small.uri);
+      const small = await manipulateAsync(asset.uri, resize, { compress: 0.7, format: SaveFormat.JPEG, base64: true });
+      // Web/PWA : on envoie le base64 (Blob fiable) ; natif : l'URI.
+      const key = await uploader(small.base64 ? { base64: small.base64, uri: small.uri } : small.uri);
       setUri(small.uri);
       onUploaded(key);
     } catch (e) {

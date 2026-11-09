@@ -102,13 +102,28 @@ const qs = (params = {}) => {
   return parts.length ? `?${parts.join('&')}` : '';
 };
 
-async function uploadTo(path, uri) {
+function base64ToBlob(b64, type = 'image/jpeg') {
+  const bin = (globalThis.atob || ((s) => Buffer.from(s, 'base64').toString('binary')))(b64);
+  const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+
+/**
+ * Téléverse une image. `input` est soit une URI (natif), soit { base64 } (web/PWA).
+ * Sur le web on construit le Blob à partir du base64 : fiable sur iOS Safari/PWA,
+ * là où lire une URL blob: via fetch peut échouer (Blob révoqué) et faire croire
+ * à une perte de connexion.
+ */
+async function uploadTo(path, input) {
   const f = new FormData();
+  const base64 = input && typeof input === 'object' ? input.base64 : null;
+  const uri = typeof input === 'string' ? input : input?.uri;
   if (Platform.OS === 'web') {
-    // Sur le web (PWA), FormData n'accepte pas { uri } : il faut un vrai Blob.
     let blob;
     try {
-      blob = await (await fetch(uri)).blob();
+      blob = base64 ? base64ToBlob(base64) : await (await fetch(uri)).blob();
     } catch {
       throw new ApiError(0, 'IMAGE', 'Impossible de lire l’image sélectionnée. Reprenez la photo et réessayez.');
     }
