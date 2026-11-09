@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import multer from 'multer';
+import sharp from 'sharp';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { query } from '../db.js';
@@ -92,13 +93,26 @@ listingsRouter.get(
 /* ---------------------------- Photo (upload) --------------------------- */
 
 listingsRouter.post('/photo', requireActiveSubscription, (req, res, next) => { requireOwnerRole(req); next(); }, upload.single('file'), async (req, res) => {
-  const buffer = req.file?.buffer || (req.body?.data_base64 ? Buffer.from(String(req.body.data_base64), 'base64') : null);
-  if (!buffer) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
-  const mime = sniff(buffer);
-  if (!mime) throw badRequest('INVALID_FILE_TYPE', 'Image JPEG, PNG ou WebP attendue');
+  const input = req.file?.buffer || (req.body?.data_base64 ? Buffer.from(String(req.body.data_base64), 'base64') : null);
+  if (!input) throw badRequest('FILE_REQUIRED', 'Fichier manquant (champ « file »)');
+  if (!sniff(input)) throw badRequest('INVALID_FILE_TYPE', 'Image JPEG, PNG ou WebP attendue');
+  // Normalisation web : rotation selon l'orientation EXIF, redimensionnement à 1280 px max
+  // et compression JPEG (~150 Ko). Les photos de plusieurs Mo saturaient l'instance au
+  // moment de l'affichage de la vitrine (plusieurs images en parallèle → 503). On stocke
+  // donc toujours une version légère et homogène (.jpg), quel que soit le client.
+  let buffer;
+  try {
+    buffer = await sharp(input)
+      .rotate()
+      .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 72, progressive: true })
+      .toBuffer();
+  } catch {
+    throw badRequest('INVALID_FILE_TYPE', 'Image illisible, reprenez la photo');
+  }
   const now = new Date();
-  const key = `listings/${req.auth.orgId}/${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.${ALLOWED[mime]}`;
-  await storage.put(key, buffer, mime);
+  const key = `listings/${req.auth.orgId}/${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.jpg`;
+  await storage.put(key, buffer, 'image/jpeg');
   res.status(201).json({ key, photo_url: photoUrl(key) });
 });
 
