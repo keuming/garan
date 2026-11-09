@@ -348,40 +348,68 @@ consumerRouter.post('/uploads', requireConsumer, upload.single('file'), async (r
 
 const REPORTED = new Set(['stolen', 'lost', 'blocked']);
 
-/** Avant de lier : état de l'IMEI et disponibilité. */
+const DEVICE_TYPE = z.enum(['phone', 'computer', 'tablet', 'other']);
+
+/**
+ * État d'un appareil pour l'usager : téléphone identifié par IMEI, appareil
+ * électronique (ordinateur, tablette, autre) par numéro de série. Indique s'il est
+ * signalé, déjà à ce compte, détenu par un autre usager, ou disponible à la liaison.
+ */
+async function deviceAvailability({ deviceType = 'phone', value, consumerId }) {
+  const isPhone = deviceType === 'phone';
+  const { rows } = await query(
+    `SELECT d.id, d.status, d.device_type, d.imei1, d.serial_number,
+            COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model,
+            d.owner_type, d.owner_consumer_id
+     FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+     WHERE ${isPhone ? '(d.imei1 = $1 OR d.imei2 = $1)' : 'upper(d.serial_number) = upper($1)'}`,
+    [value]
+  );
+  const d = rows[0];
+  const reported = d ? REPORTED.has(d.status) : false;
+  const mineAlready = d?.owner_type === 'consumer' && d.owner_consumer_id === consumerId;
+  const heldByOther = d?.owner_type === 'consumer' && d.owner_consumer_id !== consumerId;
+  const subject = isPhone ? 'Ce téléphone' : 'Cet appareil';
+  return {
+    identifier: value,
+    imei: isPhone ? value : null,
+    device_type: deviceType,
+    known: Boolean(d),
+    reported,
+    brand: d?.brand ?? null,
+    model: d?.model ?? null,
+    can_register: !reported && !mineAlready && !heldByOther,
+    mine_already: mineAlready,
+    held_by_other: heldByOther,
+    message: reported
+      ? `${subject} est signalé volé ou perdu. Rapprochez-vous de la police.`
+      : mineAlready
+        ? `${subject} est déjà enregistré à votre compte.`
+        : heldByOther
+          ? `${subject} est déjà enregistré par un autre usager. S’il vous appartient, il doit d’abord être délié par l’ancien propriétaire.`
+          : `${isPhone ? 'Téléphone' : 'Appareil'} disponible à l’enregistrement.`
+  };
+}
+
+/** Avant de lier (téléphone) : état de l'IMEI et disponibilité. Compat historique. */
 consumerRouter.get(
   '/devices/check/:imei',
   requireConsumer,
   validate({ params: z.object({ imei: zImei }) }),
   async (req, res) => {
-    const { imei } = req.v.params;
-    const { rows } = await query(
-      `SELECT d.id, d.status, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model, d.owner_type, d.owner_consumer_id
-       FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
-       WHERE d.imei1 = $1 OR d.imei2 = $1`,
-      [imei]
-    );
-    const d = rows[0];
-    const reported = d ? REPORTED.has(d.status) : false;
-    const mineAlready = d?.owner_type === 'consumer' && d.owner_consumer_id === req.auth.sub;
-    const heldByOther = d?.owner_type === 'consumer' && d.owner_consumer_id !== req.auth.sub;
-    res.json({
-      imei,
-      known: Boolean(d),
-      reported,
-      brand: d?.brand ?? null,
-      model: d?.model ?? null,
-      can_register: !reported && !mineAlready && !heldByOther,
-      mine_already: mineAlready,
-      held_by_other: heldByOther,
-      message: reported
-        ? 'Ce téléphone est signalé volé ou perdu. Rapprochez-vous de la police.'
-        : mineAlready
-          ? 'Ce téléphone est déjà enregistré à votre compte.'
-          : heldByOther
-            ? 'Ce téléphone est déjà enregistré par un autre usager. S’il vous appartient, il doit d’abord être délié par l’ancien propriétaire.'
-            : 'Téléphone disponible à l’enregistrement.'
-    });
+    res.json(await deviceAvailability({ deviceType: 'phone', value: req.v.params.imei, consumerId: req.auth.sub }));
+  }
+);
+
+/** Avant de lier (générique) : IMEI pour un téléphone, numéro de série pour un appareil électronique. */
+consumerRouter.get(
+  '/devices/check',
+  requireConsumer,
+  validate({ query: z.object({ identifier: z.string().trim().min(3).max(64), device_type: DEVICE_TYPE.default('phone') }) }),
+  async (req, res) => {
+    const { identifier, device_type } = req.v.query;
+    if (device_type === 'phone' && !/^\d{15}$/.test(identifier)) throw badRequest('INVALID_IMEI', 'IMEI invalide (15 chiffres).');
+    res.json(await deviceAvailability({ deviceType: device_type, value: identifier, consumerId: req.auth.sub }));
   }
 );
 
@@ -390,7 +418,7 @@ consumerRouter.get('/devices', requireConsumer, async (req, res) => {
     `SELECT r.id AS registration_id, r.status, r.acquired_at, r.released_at, r.purchase_place, r.merchant_name,
             r.receipt_number, r.receipt_key, r.box_photo_key, r.account_email, r.subscription_expires_at, r.setup_paid_at,
             COALESCE(r.setup_paid_fcfa, 0) AS setup_paid_fcfa, r.setup_first_payment_at, r.purchase_price,
-            d.id AS device_id, d.imei1, d.imei2, d.status AS device_status, d.color, d.storage_gb,
+            d.id AS device_id, d.device_type, d.imei1, d.imei2, d.serial_number, d.status AS device_status, d.color, d.storage_gb,
             COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
      FROM device_registrations r
      JOIN devices d ON d.id = r.device_id
@@ -406,49 +434,64 @@ consumerRouter.post(
   '/devices/register',
   requireConsumer,
   validate({
-    body: z.object({
-      imei1: zImei,
-      imei2: zImei.optional().nullable(),
-      brand_id: z.coerce.number().int().positive().optional(),
-      brand_label: z.string().trim().max(60).optional().nullable(),
-      model_id: z.coerce.number().int().positive().optional().nullable(),
-      model_label: z.string().trim().max(80).optional().nullable(),
-      purchase_place: z.string().trim().max(160).optional().nullable(),
-      purchase_price: z.coerce.number().int().min(0).max(100000000).optional().nullable(),
-      merchant_name: z.string().trim().max(120).optional().nullable(),
-      receipt_number: z.string().trim().max(60).optional().nullable(),
-      receipt_key: z.string().max(200).optional().nullable(),
-      box_photo_key: z.string().max(200).optional().nullable(),
-      account_email: zOptionalEmail
-    })
+    body: z
+      .object({
+        device_type: DEVICE_TYPE.default('phone'),
+        imei1: zImei.optional().nullable(),
+        imei2: zImei.optional().nullable(),
+        serial_number: z.string().trim().min(3).max(64).optional().nullable(),
+        brand_id: z.coerce.number().int().positive().optional(),
+        brand_label: z.string().trim().max(60).optional().nullable(),
+        model_id: z.coerce.number().int().positive().optional().nullable(),
+        model_label: z.string().trim().max(80).optional().nullable(),
+        purchase_place: z.string().trim().max(160).optional().nullable(),
+        purchase_price: z.coerce.number().int().min(0).max(100000000).optional().nullable(),
+        merchant_name: z.string().trim().max(120).optional().nullable(),
+        receipt_number: z.string().trim().max(60).optional().nullable(),
+        receipt_key: z.string().max(200).optional().nullable(),
+        box_photo_key: z.string().max(200).optional().nullable(),
+        account_email: zOptionalEmail
+      })
+      .superRefine((v, ctx) => {
+        if (v.device_type === 'phone') {
+          if (!v.imei1) ctx.addIssue({ code: 'custom', path: ['imei1'], message: 'IMEI requis pour un téléphone' });
+        } else if (!v.serial_number || !v.serial_number.trim()) {
+          ctx.addIssue({ code: 'custom', path: ['serial_number'], message: 'Numéro de série requis pour cet appareil' });
+        }
+      })
   }),
   async (req, res) => {
     const b = req.v.body;
+    const isPhone = b.device_type === 'phone';
+    const serial = isPhone ? null : b.serial_number.trim();
+    const subject = isPhone ? 'Ce téléphone' : 'Cet appareil';
     const prefix = `consumer-docs/${req.auth.sub}/`;
     for (const key of [b.receipt_key, b.box_photo_key]) {
       if (key && !key.startsWith(prefix)) throw badRequest('INVALID_DOCUMENT', 'Pièce jointe invalide');
     }
     const result = await withTransaction(async (c) => {
       const found = await c.query(
-        `SELECT id, status, owner_type, owner_consumer_id FROM devices WHERE imei1 = $1 OR imei2 = $1 FOR UPDATE`,
-        [b.imei1]
+        isPhone
+          ? `SELECT id, status, owner_type, owner_consumer_id FROM devices WHERE imei1 = $1 OR imei2 = $1 FOR UPDATE`
+          : `SELECT id, status, owner_type, owner_consumer_id FROM devices WHERE upper(serial_number) = upper($1) FOR UPDATE`,
+        [isPhone ? b.imei1 : serial]
       );
       let device = found.rows[0];
       if (device && REPORTED.has(device.status)) {
-        throw conflict('DEVICE_REPORTED', 'Ce téléphone est signalé volé ou perdu : enregistrement impossible.');
+        throw conflict('DEVICE_REPORTED', `${subject} est signalé volé ou perdu : enregistrement impossible.`);
       }
       if (device && device.owner_type === 'consumer') {
-        if (device.owner_consumer_id === req.auth.sub) throw conflict('ALREADY_MINE', 'Ce téléphone est déjà à votre compte.');
-        throw conflict('HELD_BY_OTHER', 'Ce téléphone est enregistré par un autre usager ; il doit d’abord être délié.');
+        if (device.owner_consumer_id === req.auth.sub) throw conflict('ALREADY_MINE', `${subject} est déjà à votre compte.`);
+        throw conflict('HELD_BY_OTHER', `${subject} est enregistré par un autre usager ; il doit d’abord être délié.`);
       }
       if (!device) {
         const brandLabel = b.brand_label && b.brand_label.trim() ? b.brand_label.trim() : null;
-        if ((!b.brand_id && !brandLabel) || (!b.model_id && !b.model_label)) throw badRequest('DEVICE_DETAILS_REQUIRED', 'Marque et modèle requis pour un téléphone inconnu');
+        if ((!b.brand_id && !brandLabel) || (!b.model_id && !b.model_label)) throw badRequest('DEVICE_DETAILS_REQUIRED', 'Marque et modèle requis pour un appareil inconnu');
         const freeBrand = !b.brand_id;
         const ins = await c.query(
-          `INSERT INTO devices (imei1, imei2, brand_id, brand_label, model_id, model_label, owner_type, owner_consumer_id)
-           VALUES ($1, $2, $3, $4, $5, $6, 'consumer', $7) RETURNING id`,
-          [b.imei1, b.imei2 ?? null, freeBrand ? null : b.brand_id, freeBrand ? brandLabel : null, freeBrand ? null : (b.model_id ?? null), !freeBrand && b.model_id ? null : b.model_label, req.auth.sub]
+          `INSERT INTO devices (device_type, imei1, imei2, serial_number, brand_id, brand_label, model_id, model_label, owner_type, owner_consumer_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'consumer', $9) RETURNING id`,
+          [b.device_type, isPhone ? b.imei1 : null, isPhone ? (b.imei2 ?? null) : null, serial, freeBrand ? null : b.brand_id, freeBrand ? brandLabel : null, freeBrand ? null : (b.model_id ?? null), !freeBrand && b.model_id ? null : b.model_label, req.auth.sub]
         );
         device = { id: ins.rows[0].id };
       } else {
@@ -503,23 +546,23 @@ consumerRouter.post(
     const me = (await query(`SELECT full_name, phone FROM consumers WHERE id = $1`, [req.auth.sub])).rows[0];
     const result = await withTransaction(async (c) => {
       const { rows } = await c.query(
-        `SELECT r.device_id, d.imei1 FROM device_registrations r JOIN devices d ON d.id = r.device_id
+        `SELECT r.device_id, d.imei1, d.serial_number, d.device_type FROM device_registrations r JOIN devices d ON d.id = r.device_id
          WHERE r.id = $1 AND r.consumer_id = $2 AND r.status = 'active' FOR UPDATE OF d`,
         [req.v.params.registrationId, req.auth.sub]
       );
-      if (!rows[0]) throw notFound('Téléphone lié introuvable');
-      const { device_id: deviceId, imei1 } = rows[0];
+      if (!rows[0]) throw notFound('Appareil lié introuvable');
+      const { device_id: deviceId, imei1, serial_number, device_type } = rows[0];
       const rep = await c.query(
-        `INSERT INTO theft_reports (device_id, imei, kind, reporter_name, reporter_phone, id_doc_type, id_doc_number,
+        `INSERT INTO theft_reports (device_id, imei, serial_number, device_type, kind, reporter_name, reporter_phone, id_doc_type, id_doc_number,
                                     police_report_number, description, status, auto_confirmed)
-         VALUES ($1,$2,$3,$4,$5,'COMPTE_USAGER',$6,$7,$8,'confirmed',true) RETURNING id`,
-        [deviceId, imei1, req.v.body.kind, me.full_name, me.phone, me.phone, req.v.body.police_report_number ?? null, req.v.body.description ?? null]
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'COMPTE_USAGER',$8,$9,$10,'confirmed',true) RETURNING id`,
+        [deviceId, imei1, serial_number, device_type, req.v.body.kind, me.full_name, me.phone, me.phone, req.v.body.police_report_number ?? null, req.v.body.description ?? null]
       );
       await c.query(`UPDATE devices SET status = $2 WHERE id = $1`, [deviceId, req.v.body.kind]);
       return rep.rows[0].id;
     });
     await audit(req, 'consumer.theft_reported', { entity: 'theft_report', entityId: result, meta: { kind: req.v.body.kind } });
-    res.status(201).json({ reference: result, status: 'confirmed', message: 'Téléphone signalé dans tout le réseau gaRAN. Rapprochez-vous de la police avec votre reçu.' });
+    res.status(201).json({ reference: result, status: 'confirmed', message: 'Appareil signalé dans tout le réseau gaRAN. Rapprochez-vous de la police avec votre reçu.' });
   }
 );
 

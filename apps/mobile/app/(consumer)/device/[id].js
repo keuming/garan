@@ -27,6 +27,10 @@ export default function ConsumerDevice() {
   });
   const item = data?.items?.find((i) => i.registration_id === id);
   const paid = Boolean(item?.subscription_expires_at && new Date(item.subscription_expires_at) > new Date());
+  const isPhone = (item?.device_type ?? 'phone') === 'phone';
+  const TYPE_LABEL = { phone: 'Téléphone', computer: 'Ordinateur', tablet: 'Tablette', other: 'Appareil' };
+  const typeLabel = TYPE_LABEL[item?.device_type ?? 'phone'];
+  const ceNoun = isPhone ? 'ce téléphone' : 'cet appareil';
 
   const release = useMutation({
     mutationFn: () => api.post(`/consumer/devices/${id}/release`),
@@ -46,7 +50,7 @@ export default function ConsumerDevice() {
 
   function confirmTheft() {
     Alert.alert(
-      'Déclarer ce téléphone',
+      `Déclarer ${ceNoun}`,
       'Il sera signalé sur tout le réseau gaRAN et deviendra invendable. Rapprochez-vous ensuite de la police avec votre reçu.',
       [
         { text: 'Annuler', style: 'cancel' },
@@ -58,8 +62,8 @@ export default function ConsumerDevice() {
 
   function confirmRelease() {
     Alert.alert(
-      'Délier ce téléphone ?',
-      'Vous confirmez avoir revendu ou cédé ce téléphone. Il sera détaché de votre compte et le nouveau propriétaire pourra l’enregistrer. Vous resterez visible comme ancien propriétaire.',
+      `Délier ${ceNoun} ?`,
+      `Vous confirmez avoir revendu ou cédé ${ceNoun}. Il sera détaché de votre compte et le nouveau propriétaire pourra l’enregistrer. Vous resterez visible comme ancien propriétaire.`,
       [
         { text: 'Annuler', style: 'cancel' },
         { text: 'Délier', style: 'destructive', onPress: () => release.mutate() }
@@ -73,7 +77,9 @@ export default function ConsumerDevice() {
     setDocBusy(kind);
     setDocError(null);
     try {
-      const verifyUrl = `${WEB_URL}/verifier?imei=${encodeURIComponent(item.imei1)}`;
+      const verifyUrl = isPhone
+        ? `${WEB_URL}/verifier?imei=${encodeURIComponent(item.imei1)}`
+        : `${WEB_URL}/verifier?serial=${encodeURIComponent(item.serial_number ?? '')}`;
       const qrSvg = await QRCode.toString(verifyUrl, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).catch(() => '');
       const owner = { full_name: consumer?.full_name, phone: consumer?.phone, email: consumer?.email };
       const device = { ...item, acquired_at_fmt: date(item.acquired_at), acquired_at_dt: dateTime(item.acquired_at) };
@@ -106,21 +112,21 @@ export default function ConsumerDevice() {
 
   return (
     <Screen refreshing={isFetching && !isLoading} onRefresh={refetch}>
-      <Title>{item.brand ? `${item.brand} ${item.model ?? ''}`.trim() : 'Téléphone'}</Title>
+      <Title>{item.brand ? `${item.brand} ${item.model ?? ''}`.trim() : typeLabel}</Title>
 
       {reported ? (
-        <Banner tone="danger" title="Téléphone signalé">
-          Ce téléphone est signalé volé, perdu ou bloqué. Rapprochez-vous de la police avec votre reçu d’achat.
+        <Banner tone="danger" title="Appareil signalé">
+          Cet appareil est signalé volé, perdu ou bloqué. Rapprochez-vous de la police avec votre reçu d’achat.
         </Banner>
       ) : active ? (
-        <Banner tone="ok" title="Lié à votre compte">Ce téléphone est protégé et relié à votre compte.</Banner>
+        <Banner tone="ok" title="Lié à votre compte">Cet appareil est protégé et relié à votre compte.</Banner>
       ) : (
-        <Banner tone="info" title="Délié">Vous avez détaché ce téléphone de votre compte le {date(item.released_at)}.</Banner>
+        <Banner tone="info" title="Délié">Vous avez détaché cet appareil de votre compte le {date(item.released_at)}.</Banner>
       )}
 
       {reported ? (
         <Card>
-          <Muted>Localiser mon téléphone</Muted>
+          <Muted>Localiser mon appareil</Muted>
           <Muted style={{ color: colors.ink3, marginBottom: 10 }}>
             gaRAN rend l’appareil invendable sur le réseau, mais ne le géolocalise pas. Pour tenter de le localiser, utilisez le service de votre compte, connecté avec le compte Google ou Apple du téléphone :
           </Muted>
@@ -135,10 +141,17 @@ export default function ConsumerDevice() {
       ) : null}
 
       <Card>
+        <Row label="Type" value={typeLabel} />
         <Row label="Marque" value={item.brand ?? '—'} />
         <Row label="Modèle" value={item.model ?? '—'} />
-        <Row label="IMEI 1" value={item.imei1} mono />
-        {item.imei2 ? <Row label="IMEI 2" value={item.imei2} mono /> : null}
+        {isPhone ? (
+          <>
+            <Row label="IMEI 1" value={item.imei1} mono />
+            {item.imei2 ? <Row label="IMEI 2" value={item.imei2} mono /> : null}
+          </>
+        ) : (
+          <Row label="N° de série" value={item.serial_number ?? '—'} mono />
+        )}
         {item.account_email ? <Row label="E-mail de l’appareil" value={item.account_email} /> : null}
         {item.color ? <Row label="Couleur" value={item.color} /> : null}
         {item.storage_gb ? <Row label="Stockage" value={`${item.storage_gb} Go`} /> : null}
@@ -205,7 +218,7 @@ export default function ConsumerDevice() {
           <ErrorBanner error={theft.error} />
           <Button title="🚨 Déclarer volé / perdu" variant="danger" onPress={confirmTheft} loading={theft.isPending} />
           <ErrorBanner error={release.error} />
-          <Button title="J’ai revendu ce téléphone (délier)" variant="secondary" onPress={confirmRelease} loading={release.isPending} />
+          <Button title={`J’ai revendu ${ceNoun} (délier)`} variant="secondary" onPress={confirmRelease} loading={release.isPending} />
           <Muted>Déclarez un vol dès que possible : le téléphone devient invendable sur le réseau. Déliez uniquement après une vente ou une cession volontaire.</Muted>
         </View>
       ) : null}

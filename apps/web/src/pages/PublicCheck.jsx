@@ -9,15 +9,21 @@ import { LABELS } from '../format.js';
 export function PublicCheck() {
   const [imei, setImei] = useState('');
   const check = useMutation({ mutationFn: (v) => api.public(`/public/imei/${v}`) });
+  // Appareils électroniques (ordinateur, tablette, autre) : vérification par numéro de série.
+  const checkSerial = useMutation({ mutationFn: (v) => api.public(`/public/serial/${encodeURIComponent(v)}`) });
 
-  // QR code d un certificat gaRAN : /verifier?imei=... -> pre-remplit et verifie automatiquement.
+  // QR code d un certificat gaRAN : /verifier?imei=... (téléphone) ou ?serial=... (électronique)
+  // -> pré-remplit et vérifie automatiquement.
   useEffect(() => {
     try {
-      const q = new URLSearchParams(window.location.search).get('imei');
+      const params = new URLSearchParams(window.location.search);
+      const q = params.get('imei');
       if (q) {
         const v = q.replace(/\D/g, '');
         if (v) { setImei(v); if (v.length >= 14) check.mutate(v); }
       }
+      const s = params.get('serial');
+      if (s && s.trim().length >= 3) checkSerial.mutate(s.trim());
     } catch { /* ignore */ }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -53,6 +59,15 @@ export function PublicCheck() {
             <div>
               <strong>{check.data.brand ? `${check.data.brand} ${check.data.model ?? ''}` : check.data.imei}</strong>
               {check.data.message}
+            </div>
+          </div>
+        ) : null}
+        <ErrorBox error={checkSerial.error} />
+        {checkSerial.data ? (
+          <div className={`verdict ${verdictTone[checkSerial.data.result]}`}>
+            <div>
+              <strong>{checkSerial.data.brand ? `${checkSerial.data.brand} ${checkSerial.data.model ?? ''}` : `N° de série ${checkSerial.data.serial}`}</strong>
+              {checkSerial.data.message}
             </div>
           </div>
         ) : null}

@@ -48,6 +48,31 @@ publicRouter.get('/imei/:imei', publicLimiter, validate({ params: z.object({ ime
   });
 });
 
+// Vérification publique d'un appareil électronique (ordinateur, tablette, autre) par numéro de série.
+publicRouter.get('/serial/:serial', publicLimiter, validate({ params: z.object({ serial: z.string().trim().min(3).max(64) }) }), async (req, res) => {
+  const { rows } = await query(
+    `SELECT d.status, d.device_type, COALESCE(b.name, d.brand_label) AS brand, COALESCE(m.name, d.model_label) AS model
+     FROM devices d LEFT JOIN brands b ON b.id = d.brand_id LEFT JOIN models m ON m.id = d.model_id
+     WHERE upper(d.serial_number) = upper($1)`,
+    [req.v.params.serial]
+  );
+  const d = rows[0];
+  const result = !d ? 'unknown' : d.status === 'active' ? 'clean' : 'reported';
+  res.json({
+    serial: req.v.params.serial,
+    device_type: d?.device_type ?? null,
+    result,
+    brand: d?.brand ?? null,
+    model: d?.model ?? null,
+    message:
+      result === 'reported'
+        ? 'Cet appareil est signalé volé ou perdu. Ne l’achetez pas.'
+        : result === 'clean'
+          ? 'Cet appareil est enregistré et n’est pas signalé.'
+          : 'Cet appareil n’est pas encore enregistré dans gaRAN.'
+  });
+});
+
 publicRouter.get(
   '/certificates/:code',
   publicLimiter,

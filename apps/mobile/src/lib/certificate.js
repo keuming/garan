@@ -67,15 +67,16 @@ export function certificateHtml({ owner, device, qrSvg }) {
     ['Téléphone', owner.phone],
     ['E-mail du compte sur l\u2019appareil', device.account_email || '\u2014'],
     ['Marque / Modèle', `${device.brand ?? ''} ${device.model ?? ''}`.trim() || '\u2014'],
-    ['IMEI 1', device.imei1],
-    ...(device.imei2 ? [['IMEI 2', device.imei2]] : [])
+    ...((device.device_type ?? 'phone') === 'phone'
+      ? [['IMEI 1', device.imei1 || '—'], ...(device.imei2 ? [['IMEI 2', device.imei2]] : [])]
+      : [['N° de série', device.serial_number || '—']])
   ];
   return shell(
     'Certificat de sécurité gaRAN',
     rows,
     qrSvg,
     'Ce certificat atteste que l\u2019appareil ci-dessous est enregistré et protégé sur le réseau gaRAN.',
-    ['Vérification', 'Scannez ce QR code pour vérifier l\u2019IMEI et le statut de l\u2019appareil sur gaRAN.']
+    ['Vérification', 'Scannez ce QR code pour vérifier le statut de l\u2019appareil sur gaRAN.']
   );
 }
 
@@ -87,8 +88,9 @@ export function certifiedReceiptHtml({ owner, device, qrSvg }) {
     ...(owner.email ? [['E-mail du compte gaRAN', owner.email]] : []),
     ['E-mail du compte sur l\u2019appareil', device.account_email || '\u2014'],
     ['Marque / Modèle', `${device.brand ?? ''} ${device.model ?? ''}`.trim() || '\u2014'],
-    ['IMEI 1', device.imei1],
-    ...(device.imei2 ? [['IMEI 2', device.imei2]] : []),
+    ...((device.device_type ?? 'phone') === 'phone'
+      ? [['IMEI 1', device.imei1 || '—'], ...(device.imei2 ? [['IMEI 2', device.imei2]] : [])]
+      : [['N° de série', device.serial_number || '—']]),
     ...(device.purchase_place ? [['Lieu d\u2019achat', device.purchase_place]] : []),
     ...(device.merchant_name ? [['Marchand', device.merchant_name]] : []),
     ...(device.receipt_number ? [['N\u00b0 de reçu d\u2019achat', device.receipt_number]] : []),

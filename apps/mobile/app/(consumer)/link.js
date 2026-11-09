@@ -5,32 +5,58 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BrandModelPicker } from '../../src/components/BrandModelPicker';
 import { IdPhotoField } from '../../src/components/IdPhotoField';
 import { ImeiField } from '../../src/components/ImeiField';
-import { Banner, Button, Card, ErrorBanner, Input, Muted, Row, Screen, Title } from '../../src/components/ui';
+import { Banner, Button, Card, ErrorBanner, Input, Muted, Row, Screen, Select, Title } from '../../src/components/ui';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { isValidImei } from '../../src/lib/imei';
 import { colors } from '../../src/lib/theme';
 
-export default function LinkPhone() {
+const DEVICE_TYPES = [
+  { value: 'phone', label: 'Téléphone' },
+  { value: 'computer', label: 'Ordinateur' },
+  { value: 'tablet', label: 'Tablette' },
+  { value: 'other', label: 'Autre appareil électronique' }
+];
+
+export default function LinkDevice() {
   const { consumer } = useAuth();
   const qc = useQueryClient();
+  const [deviceType, setDeviceType] = useState('phone');
+  const isPhone = deviceType === 'phone';
   const [imei, setImei] = useState('');
   const [imei2, setImei2] = useState('');
+  const [serial, setSerial] = useState('');
   const [device, setDevice] = useState({ brand_id: undefined, model_id: undefined, model_label: undefined });
+  const [freeDevice, setFreeDevice] = useState({ brand_label: '', model_label: '' });
   const [f, setF] = useState({ account_email: '', purchase_place: '', purchase_price: '', merchant_name: '', receipt_number: '', receipt_key: null, box_photo_key: null });
   const set = (k) => (v) => setF((p) => ({ ...p, [k]: v }));
 
-  const check = useMutation({ mutationFn: () => api.get(`/consumer/devices/check/${imei}`) });
+  const idReady = isPhone ? isValidImei(imei) : serial.trim().length >= 3;
+
+  const check = useMutation({
+    mutationFn: () =>
+      isPhone
+        ? api.get(`/consumer/devices/check/${imei}`)
+        : api.get('/consumer/devices/check', { identifier: serial.trim(), device_type: deviceType })
+  });
   const r = check.data;
+
+  function resetCheck() {
+    check.reset();
+    register.reset();
+  }
 
   const register = useMutation({
     mutationFn: () =>
       api.post('/consumer/devices/register', {
-        imei1: imei,
-        imei2: imei2 && isValidImei(imei2) ? imei2 : undefined,
-        brand_id: r?.known ? undefined : device.brand_id,
-        model_id: r?.known ? undefined : device.model_id,
-        model_label: r?.known ? undefined : device.model_label || undefined,
+        device_type: deviceType,
+        imei1: isPhone ? imei : undefined,
+        imei2: isPhone && imei2 && isValidImei(imei2) ? imei2 : undefined,
+        serial_number: isPhone ? undefined : serial.trim(),
+        brand_id: r?.known ? undefined : isPhone ? device.brand_id : undefined,
+        brand_label: r?.known ? undefined : isPhone ? undefined : freeDevice.brand_label.trim() || undefined,
+        model_id: r?.known ? undefined : isPhone ? device.model_id : undefined,
+        model_label: r?.known ? undefined : isPhone ? device.model_label || undefined : freeDevice.model_label.trim() || undefined,
         account_email: f.account_email || undefined,
         purchase_place: f.purchase_place || undefined,
         purchase_price: f.purchase_price ? Number(f.purchase_price) : undefined,
@@ -45,21 +71,49 @@ export default function LinkPhone() {
     }
   });
 
-  // Un téléphone inconnu du registre exige marque + modèle.
+  // Un appareil inconnu du registre exige marque + modèle.
   const needDetails = r && !r.known;
-  const detailsOk = !needDetails || (device.brand_id && (device.model_id || (device.model_label && device.model_label.trim())));
+  const detailsOk = !needDetails
+    ? true
+    : isPhone
+      ? device.brand_id && (device.model_id || (device.model_label && device.model_label.trim()))
+      : freeDevice.brand_label.trim() && freeDevice.model_label.trim();
   const canSubmit = r?.can_register && detailsOk && !register.isPending;
+
+  const ceNoun = isPhone ? 'ce téléphone' : 'cet appareil';
 
   return (
     <Screen>
-      <Title sub="Enregistrez votre téléphone pour le relier à votre compte. En cas de vol ou de perte, il sera signalé et introuvable à la revente.">
-        Linker mon téléphone
+      <Title sub="Enregistrez votre appareil pour le relier à votre compte. En cas de vol ou de perte, il sera signalé et introuvable à la revente.">
+        Lier un appareil
       </Title>
 
       <Card>
-        <ImeiField value={imei} onChange={(v) => { setImei(v); check.reset(); register.reset(); }} />
-        <Button title="Vérifier l’IMEI" onPress={() => check.mutate()} loading={check.isPending} disabled={!isValidImei(imei)} />
-        <Muted>Composez *#06# sur le téléphone à enregistrer, ou scannez le code-barres de la boîte.</Muted>
+        <Select
+          label="Type d’appareil"
+          value={deviceType}
+          options={DEVICE_TYPES}
+          onChange={(v) => { setDeviceType(v); setImei(''); setImei2(''); setSerial(''); resetCheck(); }}
+        />
+        {isPhone ? (
+          <>
+            <ImeiField value={imei} onChange={(v) => { setImei(v); resetCheck(); }} />
+            <Button title="Vérifier l’IMEI" onPress={() => check.mutate()} loading={check.isPending} disabled={!idReady} />
+            <Muted>Composez *#06# sur le téléphone à enregistrer, ou scannez le code-barres de la boîte.</Muted>
+          </>
+        ) : (
+          <>
+            <Input
+              label="Numéro de série"
+              value={serial}
+              onChangeText={(v) => { setSerial(v); resetCheck(); }}
+              autoCapitalize="characters"
+              placeholder="N° de série de l’appareil"
+            />
+            <Button title="Vérifier le numéro de série" onPress={() => check.mutate()} loading={check.isPending} disabled={!idReady} />
+            <Muted>Le numéro de série figure sous l’appareil, dans ses réglages, ou sur son emballage d’origine.</Muted>
+          </>
+        )}
       </Card>
 
       <ErrorBanner error={check.error} />
@@ -67,7 +121,7 @@ export default function LinkPhone() {
       {r ? (
         <Banner
           tone={r.reported ? 'danger' : r.can_register ? 'ok' : 'warn'}
-          title={r.reported ? 'Téléphone signalé' : r.mine_already ? 'Déjà à votre compte' : r.held_by_other ? 'Déjà enregistré' : 'Prêt à enregistrer'}
+          title={r.reported ? 'Appareil signalé' : r.mine_already ? 'Déjà à votre compte' : r.held_by_other ? 'Déjà enregistré' : 'Prêt à enregistrer'}
         >
           {r.message}
         </Banner>
@@ -77,19 +131,28 @@ export default function LinkPhone() {
         <>
           {r.known ? (
             <Card>
-              <Row label="Modèle" value={r.brand ? `${r.brand} ${r.model ?? ''}`.trim() : '—'} />
+              <Row label="Appareil" value={r.brand ? `${r.brand} ${r.model ?? ''}`.trim() : '—'} />
             </Card>
           ) : (
             <Card>
-              <Muted>Ce téléphone n’est pas encore dans le registre. Indiquez sa marque et son modèle.</Muted>
-              <BrandModelPicker value={device} onChange={setDevice} />
+              <Muted>Cet appareil n’est pas encore dans le registre. Indiquez sa marque et son modèle.</Muted>
+              {isPhone ? (
+                <BrandModelPicker value={device} onChange={setDevice} />
+              ) : (
+                <>
+                  <Input label="Marque" value={freeDevice.brand_label} onChangeText={(v) => setFreeDevice((p) => ({ ...p, brand_label: v }))} placeholder="Ex. HP, Apple, Lenovo…" />
+                  <Input label="Modèle" value={freeDevice.model_label} onChangeText={(v) => setFreeDevice((p) => ({ ...p, model_label: v }))} placeholder="Ex. ProBook 450, MacBook Air M2…" />
+                </>
+              )}
             </Card>
           )}
 
-          <Card>
-            <Muted>Second IMEI (double SIM, facultatif)</Muted>
-            <ImeiField label="IMEI 2" value={imei2} onChange={setImei2} optional />
-          </Card>
+          {isPhone ? (
+            <Card>
+              <Muted>Second IMEI (double SIM, facultatif)</Muted>
+              <ImeiField label="IMEI 2" value={imei2} onChange={setImei2} optional />
+            </Card>
+          ) : null}
 
           <Card>
             <Muted>Le propriétaire, c’est vous</Muted>
@@ -100,9 +163,9 @@ export default function LinkPhone() {
           </Card>
 
           <Card>
-            <Muted>Compte enregistré sur ce téléphone</Muted>
+            <Muted>Compte enregistré sur cet appareil</Muted>
             <Input
-              label="E-mail du compte de l’appareil (Gmail sur Android, iCloud sur iOS)"
+              label="E-mail du compte de l’appareil (Gmail sur Android, iCloud sur iOS, compte Microsoft/Apple sur ordinateur)"
               value={f.account_email}
               onChangeText={set('account_email')}
               placeholder="ex. prenom.nom@gmail.com"
@@ -114,7 +177,7 @@ export default function LinkPhone() {
 
           <Card>
             <Muted>Preuve d’achat (recommandé)</Muted>
-            <Input label="Lieu d’achat du téléphone" value={f.purchase_place} onChangeText={set('purchase_place')} placeholder="Ex. Marché d’Adjamé, Abidjan" />
+            <Input label={`Lieu d’achat de l’appareil`} value={f.purchase_place} onChangeText={set('purchase_place')} placeholder="Ex. Marché d’Adjamé, Abidjan" />
             <Input label="Prix d’achat (FCFA)" value={f.purchase_price} onChangeText={(t) => set('purchase_price')(t.replace(/\D/g, ''))} keyboardType="number-pad" placeholder="Ex. 85000" />
             <Input label="Nom du marchand" value={f.merchant_name} onChangeText={set('merchant_name')} placeholder="Nom de la boutique" />
             <Input label="Numéro du reçu d’achat" value={f.receipt_number} onChangeText={set('receipt_number')} />
@@ -125,7 +188,7 @@ export default function LinkPhone() {
           </Card>
 
           <ErrorBanner error={register.error} />
-          <Button title="Lier ce téléphone à mon compte" onPress={() => register.mutate()} loading={register.isPending} disabled={!canSubmit} />
+          <Button title={`Lier ${ceNoun} à mon compte`} onPress={() => register.mutate()} loading={register.isPending} disabled={!canSubmit} />
         </>
       ) : null}
     </Screen>

@@ -218,15 +218,15 @@ export default function ConsumerHome() {
           <ProtectedHero
             tone="soft"
             eyebrow={`Bonjour ${firstName}`}
-            title="Protégez vos téléphones"
-            subtitle="Enregistrez un téléphone puis abonnez-le pour signaler un vol en un clic et prouver qu’il est à vous."
+            title="Protégez vos appareils"
+            subtitle="Enregistrez un téléphone, un ordinateur ou une tablette puis abonnez-le pour signaler un vol en un clic et prouver qu’il est à vous."
           >
-            <Button title="Linker mon téléphone" onPress={() => router.push('/link')} />
+            <Button title="Lier un appareil" onPress={() => router.push('/link')} />
           </ProtectedHero>
         )}
 
         <View style={st.grid}>
-          <Tile title="Linker mon téléphone" sub="Enregistrer et protéger" icon="🔗" tone="green" onPress={() => router.push('/link')} />
+          <Tile title="Lier un appareil" sub="Téléphone, ordinateur, tablette" icon="🔗" tone="green" onPress={() => router.push('/link')} />
           <Tile title="Vérifier un IMEI" sub="Avant un achat d’occasion" icon="🔍" tone="navy" onPress={() => router.push('/check')} />
           <Tile title="Téléphones volés" sub="Registre réseau gaRAN" icon="⛔" tone="blood" onPress={() => router.push('/stolen')} />
           <Tile title="Pourquoi gaRAN ?" sub="Sécurité, avantages, abonnement" icon="🛡️" tone="white" onPress={() => router.push('/why')} />
