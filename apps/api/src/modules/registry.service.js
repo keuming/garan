@@ -174,7 +174,8 @@ async function setOwner(client, deviceId, owner) {
 
 /**
  * Crée ou met à jour une personne identifiée par (type de pièce, numéro).
- * Les photos recto/verso sont obligatoires (fournies maintenant ou déjà au dossier).
+ * Les photos recto/verso sont facultatives : le numéro de la pièce suffit. Si des
+ * photos sont fournies (ou déjà au dossier), elles sont conservées.
  */
 async function upsertPerson(client, p, { orgId, shopId }) {
   const prefix = `id-docs/${orgId}/`;
@@ -187,11 +188,8 @@ async function upsertPerson(client, p, { orgId, shopId }) {
      FOR UPDATE`,
     [p.id_doc_type, p.id_doc_number]
   );
-  const front = p.id_doc_front_key ?? existing.rows[0]?.id_doc_front_key;
-  const back = p.id_doc_back_key ?? existing.rows[0]?.id_doc_back_key;
-  if (!front || !back) {
-    throw badRequest('ID_PHOTOS_REQUIRED', 'Photos recto et verso de la pièce d’identité obligatoires');
-  }
+  const front = p.id_doc_front_key ?? existing.rows[0]?.id_doc_front_key ?? null;
+  const back = p.id_doc_back_key ?? existing.rows[0]?.id_doc_back_key ?? null;
   if (existing.rows[0]) {
     const id = existing.rows[0].id;
     await client.query(
