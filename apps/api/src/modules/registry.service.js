@@ -166,9 +166,19 @@ async function createDevice(client, dev, owner) {
 }
 
 async function setOwner(client, deviceId, owner) {
+  // On réécrit TOUTES les colonnes de propriété (shop/person/consumer) pour respecter la
+  // contrainte devices_owner_consistency : un appareil anciennement détenu par un usager
+  // (owner_consumer_id non nul, ex. activation gaRAN) doit voir ce champ remis à NULL lors
+  // d'une revente à un particulier, sinon la contrainte est violée (500).
   await client.query(
-    `UPDATE devices SET owner_type = $2, owner_shop_id = $3, owner_person_id = $4 WHERE id = $1`,
-    [deviceId, owner.type, owner.type === 'shop' ? owner.id : null, owner.type === 'person' ? owner.id : null]
+    `UPDATE devices SET owner_type = $2, owner_shop_id = $3, owner_person_id = $4, owner_consumer_id = $5 WHERE id = $1`,
+    [
+      deviceId,
+      owner.type,
+      owner.type === 'shop' ? owner.id : null,
+      owner.type === 'person' ? owner.id : null,
+      owner.type === 'consumer' ? owner.id : null
+    ]
   );
 }
 
