@@ -34,6 +34,15 @@ const schema = z
     // Si vide, l'alerte part vers les admins actifs (table admins).
     OPS_EMAIL: z.string().default(''),
 
+    // Routage des demandes de blocage IMEI vers les opérateurs et l'ARTCI.
+    // E-mails de destination (vides = on retombe sur OPS_EMAIL / admins).
+    OPERATOR_ORANGE_EMAIL: z.string().default(''),
+    OPERATOR_MTN_EMAIL: z.string().default(''),
+    OPERATOR_MOOV_EMAIL: z.string().default(''),
+    ARTCI_EMAIL: z.string().default(''),
+    // Au-delà de ce délai sans retour, une demande transmise est « à relancer ».
+    BLOCK_FOLLOWUP_DAYS: z.coerce.number().int().min(1).max(60).default(5),
+
     // Passerelle SMS (générique, branchable). Vide = envoi SMS désactivé proprement.
     SMS_API_URL: z.string().default(''),
     SMS_API_KEY: z.string().default(''),

@@ -1,4 +1,5 @@
 import { query } from '../db.js';
+import { config } from '../config.js';
 
 /**
  * Demandes de blocage opérateur (IMEI). gaRAN prépare et suit la demande ;
@@ -6,6 +7,84 @@ import { query } from '../db.js';
  */
 
 const OPEN = "('requested', 'transmitted')";
+
+/* -------------------------- Routage opérateur (CI) -------------------------- */
+
+// Préfixes mobiles de Côte d'Ivoire (numérotation à 10 chiffres).
+export const CI_OPERATORS = {
+  orange: { key: 'orange', label: 'Orange CI', prefixes: ['07', '08', '09'] },
+  mtn: { key: 'mtn', label: 'MTN CI', prefixes: ['04', '05', '06'] },
+  moov: { key: 'moov', label: 'Moov Africa CI', prefixes: ['01', '02', '03'] }
+};
+
+/** Normalise un numéro ivoirien en 10 chiffres locaux (ex. 0712345678). */
+function ciLocal(phone) {
+  let d = String(phone ?? '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('225')) d = d.slice(3);
+  if (d.length === 10 && d.startsWith('0')) return d;
+  if (d.length === 8) return `0${d}`; // ancien format à 8 chiffres
+  return d;
+}
+
+/** Déduit l'opérateur d'un numéro ivoirien d'après son préfixe, ou null. */
+export function operatorFromPhone(phone) {
+  const d = ciLocal(phone);
+  if (d.length < 2) return null;
+  const p2 = d.slice(0, 2);
+  return Object.values(CI_OPERATORS).find((op) => op.prefixes.includes(p2)) ?? null;
+}
+
+/** Reconnaît un opérateur à partir d'un libellé libre (« orange », « MTN CI »…). */
+export function operatorFromLabel(label) {
+  const t = String(label ?? '').toLowerCase();
+  if (t.includes('orange')) return CI_OPERATORS.orange;
+  if (t.includes('mtn')) return CI_OPERATORS.mtn;
+  if (t.includes('moov')) return CI_OPERATORS.moov;
+  return null;
+}
+
+/**
+ * Suggère l'opérateur à cibler pour un blocage : en priorité la SIM insérée APRÈS
+ * le vol (sim_events), sinon le préfixe du numéro du propriétaire déclarant.
+ * Renvoie { key, label, source } ou null.
+ */
+export async function suggestOperator(client, { deviceId = null, ownerPhone = null }) {
+  const c = client ?? { query };
+  if (deviceId) {
+    const se = (
+      await c.query(
+        `SELECT operator, phone_number FROM sim_events
+         WHERE device_id = $1 AND after_theft = true ORDER BY created_at DESC LIMIT 1`,
+        [deviceId]
+      )
+    ).rows[0];
+    if (se) {
+      const byName = operatorFromLabel(se.operator);
+      if (byName) return { ...byName, source: 'sim_after_theft' };
+      const byPhone = operatorFromPhone(se.phone_number);
+      if (byPhone) return { ...byPhone, source: 'sim_after_theft' };
+    }
+  }
+  const byOwner = operatorFromPhone(ownerPhone);
+  if (byOwner) return { ...byOwner, source: 'owner_phone' };
+  return null;
+}
+
+/** E-mail de destination configuré pour un opérateur (clé), ou null. */
+export function operatorEmail(key) {
+  const map = { orange: config.OPERATOR_ORANGE_EMAIL, mtn: config.OPERATOR_MTN_EMAIL, moov: config.OPERATOR_MOOV_EMAIL };
+  return (map[key] || '').trim() || null;
+}
+
+/**
+ * Destinataires e-mail d'une transmission : l'opérateur ciblé (si configuré),
+ * l'ARTCI, et l'adresse ops. Déduplique et ignore les vides.
+ */
+export function transmissionRecipients(operatorKey) {
+  const list = [operatorEmail(operatorKey), (config.ARTCI_EMAIL || '').trim(), (config.OPS_EMAIL || '').trim()];
+  return [...new Set(list.filter(Boolean))];
+}
 
 /**
  * Crée une demande de blocage pour un appareil volé, SAUF s'il en existe déjà une ouverte.

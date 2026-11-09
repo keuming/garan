@@ -9,7 +9,10 @@ import { audit } from '../lib/audit.js';
 import { validate, zEmail, zImei, zPagination, zText, zUuid } from '../lib/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getBalance, orzayahEnabled } from '../lib/orzayah.js';
-import { ensureBlockRequest, blockRequestText } from './block-request.service.js';
+import { ensureBlockRequest, blockRequestText, suggestOperator, operatorFromLabel, transmissionRecipients } from './block-request.service.js';
+import { config } from '../config.js';
+import { sendEmail, emailLayout } from '../lib/mailer.js';
+import { sendSms } from '../lib/sms.js';
 import { listBusinessDevelopers, businessDeveloperDetail, decideBusinessDeveloper, recordPayout, listPayoutRequests, decidePayoutRequest } from './bd.service.js';
 
 /**
@@ -762,14 +765,18 @@ const zBlockStatus = z.enum(['requested', 'transmitted', 'blocked', 'rejected'])
 adminRouter.get(
   '/block-requests',
   requireAdmin(...STAFF, 'police'),
-  validate({ query: z.object({ status: zBlockStatus.optional(), ...zPagination }) }),
+  validate({ query: z.object({ status: zBlockStatus.optional(), followup: z.enum(['0', '1']).optional(), ...zPagination }) }),
   async (req, res) => {
-    const { status, limit, offset } = req.v.query;
+    const { status, followup, limit, offset } = req.v.query;
     const params = [];
     const cond = [];
     if (status) {
       params.push(status);
       cond.push(`br.status = $${params.length}`);
+    }
+    if (followup === '1') {
+      params.push(config.BLOCK_FOLLOWUP_DAYS);
+      cond.push(`br.status = 'transmitted' AND br.transmitted_at < now() - ($${params.length} || ' days')::interval`);
     }
     const where = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
     const countParams = [...params];
@@ -787,6 +794,78 @@ adminRouter.get(
   }
 );
 
+/** Coordonnées du propriétaire déclarant (usager lié si connu, sinon infos de la demande). */
+async function blockRequestOwnerContact(br) {
+  if (br.device_id) {
+    const row = (
+      await query(
+        `SELECT cs.full_name, cs.phone, cs.email
+         FROM device_registrations r JOIN consumers cs ON cs.id = r.consumer_id
+         WHERE r.device_id = $1 AND r.status = 'active' ORDER BY r.acquired_at DESC LIMIT 1`,
+        [br.device_id]
+      )
+    ).rows[0];
+    if (row) return { name: row.full_name, phone: row.phone, email: row.email };
+  }
+  return { name: br.owner_name, phone: br.owner_phone, email: null };
+}
+
+/** Notifie le propriétaire de l'avancement de sa demande (SMS + e-mail si connu). Ne bloque jamais. */
+async function notifyOwnerBlockStatus(br) {
+  const human = { transmitted: 'transmise aux opérateurs', blocked: 'confirmée : votre appareil est bloqué sur le réseau' }[br.status];
+  if (!human) return;
+  const contact = await blockRequestOwnerContact(br);
+  const device = [br.brand_label, br.model_label].filter(Boolean).join(' ') || `IMEI ${br.imei}`;
+  const ref = String(br.id).slice(0, 8);
+  const msg = `gaRAN : votre demande de blocage (${device}) est ${human}. Réf ${ref}.`;
+  if (contact.phone) await sendSms({ to: contact.phone, message: msg }).catch(() => {});
+  if (contact.email) {
+    await sendEmail({
+      to: contact.email,
+      subject: 'gaRAN — suivi de votre demande de blocage',
+      html: emailLayout({ title: 'Suivi de votre demande de blocage', bodyHtml: `<p>Bonjour ${contact.name ?? ''},</p><p>Votre demande de blocage pour <strong>${device}</strong> est <strong>${human}</strong>.</p><p>Référence gaRAN : ${br.id}</p>` }),
+      text: msg
+    }).catch(() => {});
+  }
+  await query(`UPDATE block_requests SET owner_notified_at = now(), owner_notified_status = $2 WHERE id = $1`, [br.id, br.status]);
+}
+
+/** Envoie la lettre de demande par e-mail aux destinataires (opérateur ciblé + ARTCI + ops). */
+async function emailBlockRequest(br, operatorKey, { reminder = false } = {}) {
+  const recipients = transmissionRecipients(operatorKey);
+  if (!recipients.length) return { emailed: 0, recipients };
+  const text = blockRequestText(br);
+  const subject = `${reminder ? 'RELANCE — ' : ''}Demande de blocage IMEI ${br.imei} (gaRAN réf ${String(br.id).slice(0, 8)})`;
+  await sendEmail({
+    to: recipients.join(', '),
+    subject,
+    html: emailLayout({ title: subject, bodyHtml: `<pre style="white-space:pre-wrap;font-family:inherit">${text.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</pre>` }),
+    text
+  });
+  return { emailed: recipients.length, recipients };
+}
+
+adminRouter.get(
+  '/block-requests/stats',
+  requireAdmin(...STAFF, 'police'),
+  async (_req, res) => {
+    const [counts, followup] = await Promise.all([
+      query(`SELECT status, count(*)::int AS n FROM block_requests GROUP BY status`),
+      query(
+        `SELECT count(*)::int AS n FROM block_requests
+         WHERE status = 'transmitted' AND transmitted_at < now() - ($1 || ' days')::interval`,
+        [config.BLOCK_FOLLOWUP_DAYS]
+      )
+    ]);
+    const by = Object.fromEntries(counts.rows.map((r) => [r.status, r.n]));
+    res.json({
+      counts: { requested: by.requested ?? 0, transmitted: by.transmitted ?? 0, blocked: by.blocked ?? 0, rejected: by.rejected ?? 0 },
+      followup_due: followup.rows[0].n,
+      followup_days: config.BLOCK_FOLLOWUP_DAYS
+    });
+  }
+);
+
 adminRouter.get(
   '/block-requests/:id',
   requireAdmin(...STAFF, 'police'),
@@ -797,7 +876,13 @@ adminRouter.get(
       [req.v.params.id]
     );
     if (!rows[0]) throw notFound('Demande de blocage introuvable');
-    res.json({ ...rows[0], request_text: blockRequestText(rows[0]) });
+    const suggestion = await suggestOperator(null, { deviceId: rows[0].device_id, ownerPhone: rows[0].owner_phone });
+    res.json({
+      ...rows[0],
+      request_text: blockRequestText(rows[0]),
+      suggested_operator: suggestion ? { key: suggestion.key, label: suggestion.label, source: suggestion.source } : null,
+      operator_email_configured: suggestion ? Boolean(transmissionRecipients(suggestion.key).length) : Boolean(transmissionRecipients(null).length)
+    });
   }
 );
 
@@ -829,6 +914,9 @@ adminRouter.patch(
     );
     if (!rows[0]) throw notFound('Demande de blocage introuvable');
     await audit(req, `admin.block_request_${b.status}`, { entity: 'block_request', entityId: rows[0].id });
+    if (['transmitted', 'blocked'].includes(rows[0].status) && rows[0].owner_notified_status !== rows[0].status) {
+      await notifyOwnerBlockStatus(rows[0]);
+    }
     res.json({ ...rows[0], request_text: blockRequestText(rows[0]) });
   }
 );
@@ -848,6 +936,55 @@ adminRouter.post(
     if (!created) throw conflict('BLOCK_REQUEST_OPEN', 'Une demande de blocage est déjà ouverte pour cet appareil.');
     await audit(req, 'admin.block_request_created', { entity: 'block_request', entityId: created.id });
     res.status(201).json({ ...created, request_text: blockRequestText(created) });
+  }
+);
+
+/** Transmission en 1 clic : envoie la lettre à l'opérateur ciblé + ARTCI, passe en « transmise », notifie l'usager. */
+adminRouter.post(
+  '/block-requests/:id/transmit',
+  requireAdmin(...STAFF, 'police'),
+  validate({ params: z.object({ id: zUuid }), body: z.object({ operator: z.string().trim().max(60).optional().nullable() }) }),
+  async (req, res) => {
+    const br = (await query(`SELECT * FROM block_requests WHERE id = $1`, [req.v.params.id])).rows[0];
+    if (!br) throw notFound('Demande de blocage introuvable');
+    if (br.status === 'blocked') throw conflict('ALREADY_BLOCKED', 'Cette demande est déjà confirmée bloquée.');
+    // Opérateur : choix explicite > opérateur déjà saisi > suggestion automatique (SIM après vol / préfixe).
+    const resolved =
+      (req.v.body.operator ? operatorFromLabel(req.v.body.operator) : null) ??
+      operatorFromLabel(br.operator) ??
+      (await suggestOperator(null, { deviceId: br.device_id, ownerPhone: br.owner_phone }));
+    const operatorLabel = req.v.body.operator?.trim() || resolved?.label || br.operator || null;
+    const sent = await emailBlockRequest(br, resolved?.key ?? null);
+    const { rows } = await query(
+      `UPDATE block_requests
+       SET status = 'transmitted', operator = COALESCE($2, operator),
+           transmitted_at = COALESCE(transmitted_at, now()), updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [br.id, operatorLabel]
+    );
+    await audit(req, 'admin.block_request_transmitted', { entity: 'block_request', entityId: br.id, meta: { operator: operatorLabel, emailed: sent.emailed } });
+    if (rows[0].owner_notified_status !== 'transmitted') await notifyOwnerBlockStatus(rows[0]);
+    res.json({ ...rows[0], request_text: blockRequestText(rows[0]), emailed: sent.emailed, recipients: sent.recipients });
+  }
+);
+
+/** Relance d'une demande transmise restée sans réponse : renvoie la lettre et incrémente le compteur. */
+adminRouter.post(
+  '/block-requests/:id/remind',
+  requireAdmin(...STAFF, 'police'),
+  validate({ params: z.object({ id: zUuid }) }),
+  async (req, res) => {
+    const br = (await query(`SELECT * FROM block_requests WHERE id = $1`, [req.v.params.id])).rows[0];
+    if (!br) throw notFound('Demande de blocage introuvable');
+    if (br.status !== 'transmitted') throw conflict('NOT_TRANSMITTED', 'Seule une demande transmise peut être relancée.');
+    const operatorKey = operatorFromLabel(br.operator)?.key ?? (await suggestOperator(null, { deviceId: br.device_id, ownerPhone: br.owner_phone }))?.key ?? null;
+    const sent = await emailBlockRequest(br, operatorKey, { reminder: true });
+    const { rows } = await query(
+      `UPDATE block_requests SET reminder_count = reminder_count + 1, last_reminded_at = now(), updated_at = now() WHERE id = $1 RETURNING *`,
+      [br.id]
+    );
+    await audit(req, 'admin.block_request_reminded', { entity: 'block_request', entityId: br.id, meta: { emailed: sent.emailed, reminder_count: rows[0].reminder_count } });
+    res.json({ ...rows[0], request_text: blockRequestText(rows[0]), emailed: sent.emailed, recipients: sent.recipients });
   }
 );
 
