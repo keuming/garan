@@ -6,6 +6,7 @@ import { audit } from '../lib/audit.js';
 import { logger } from '../logger.js';
 import { salePaymentView } from './sale-payment.service.js';
 import { SETUP_FCFA, PLAN_FCFA } from './subscription.service.js';
+import { creditConsumerReferral } from './bd.service.js';
 
 /* =====================================================================
  * Cœur métier du registre : entrée en stock, rachat, vente.
@@ -388,6 +389,11 @@ async function activateGaranForBuyer(c, { person, deviceId, txId, orgId, shopId,
      ON CONFLICT (idempotency_key) DO NOTHING`,
     [`garan-sale-${txId}`, consumer.id, registrationId, (SETUP_FCFA.consumer + PLAN_FCFA.consumer) * 100, txId]
   );
+
+  // Commission du business developer qui a parrainé cet usager : la mise en service
+  // (une seule fois, idempotente) et le mois d'abonnement encaissé à la vente. Sans ceci,
+  // l'activation d'un usager parrainé directement par le marchand ne créditait pas le BD.
+  await creditConsumerReferral(c, { consumerId: consumer.id, setup: true, months: 1, source: `garan-sale-${txId}` });
 
   return { consumer_id: consumer.id, registration_id: registrationId, account_created: created, phone: person.phone1 };
 }
