@@ -44,9 +44,9 @@ export default function Subscribe() {
               <Muted style={{ color: setup?.overdue ? colors.blood : colors.ink3, marginTop: 4 }}>
                 {setup?.due_at
                   ? `À compléter avant le ${date(setup.due_at)} (30 jours).${setup?.overdue ? ' Délai dépassé — régularisez au plus vite.' : ''}`
-                  : `Payable en ${setup?.installments_total ?? 4} versements de ${nf(setup?.installment_fcfa ?? 2500)} FCFA, sur 30 jours maximum.`}
+                  : `Réglez-la en une fois, ou en ${setup?.installments_total ?? 4} versements de ${nf(setup?.installment_fcfa ?? 2500)} FCFA si besoin (30 jours maximum).`}
               </Muted>
-              <Button title={`Payer un versement (${nf(setup?.installment_fcfa ?? 2500)} FCFA)`} onPress={() => router.push('/subscribe-setup')} />
+              <Button title={`Régler la mise en service (${nf(setup?.remaining_fcfa ?? 10000)} FCFA)`} onPress={() => router.push('/subscribe-setup')} />
             </>
           )}
         </Card>

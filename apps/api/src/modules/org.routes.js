@@ -94,10 +94,11 @@ orgRouter.get('/setup/plan', async (req, res) => {
   res.json(await merchantSetupState(req.auth.orgId));
 });
 
-// Initie un versement (2 500 FCFA, ou le reste) par lien ORZAYAH.
-orgRouter.post('/setup/orzayah', async (req, res) => {
-  const r = await initiateMerchantSetup({ orgId: req.auth.orgId });
-  await audit(req, 'org.setup_initiated', { entity: 'orzayah_payment', entityId: r.payment_id });
+// Initie un paiement de mise en service par lien ORZAYAH : solde complet par défaut,
+// ou montant partiel (amount_fcfa) borné entre un versement et le reste dû.
+orgRouter.post('/setup/orzayah', validate({ body: z.object({ amount_fcfa: z.coerce.number().int().positive().max(10000).optional() }) }), async (req, res) => {
+  const r = await initiateMerchantSetup({ orgId: req.auth.orgId, requestedFcfa: req.v.body.amount_fcfa ?? null });
+  await audit(req, 'org.setup_initiated', { entity: 'orzayah_payment', entityId: r.payment_id, meta: { amount_fcfa: r.amount_fcfa, full: r.full } });
   res.status(201).json(r);
 });
 

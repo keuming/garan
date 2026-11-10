@@ -148,15 +148,26 @@ export async function deviceSetupState({ registrationId, consumerId = null }) {
   };
 }
 
-/** Initie un versement de mise en service d'un appareil (250 FCFA, ou le reste) par lien ORZAYAH. */
-export async function initiateDeviceSetup({ consumerId, registrationId }) {
+/**
+ * Initie un paiement de mise en service d'un appareil par lien ORZAYAH.
+ * Par défaut on règle le SOLDE COMPLET (la norme) ; `requestedFcfa` permet un
+ * paiement partiel, borné entre un versement (250 FCFA) et le reste dû.
+ */
+export async function initiateDeviceSetup({ consumerId, registrationId, requestedFcfa = null }) {
   const state = await deviceSetupState({ registrationId, consumerId });
   if (state.complete) throw badRequest('SETUP_DONE', 'La mise en service de cet appareil est déjà entièrement réglée.');
-  const amountFcfa = state.installment_fcfa;
+  const minF = state.installment_fcfa;
+  const maxF = state.remaining_fcfa;
+  let amountFcfa = requestedFcfa == null ? maxF : Math.round(Number(requestedFcfa));
+  if (!Number.isFinite(amountFcfa) || amountFcfa < minF) amountFcfa = minF;
+  if (amountFcfa > maxF) amountFcfa = maxF;
+  const full = amountFcfa >= maxF;
   const amountCentimes = amountFcfa * 100;
   const idempotencyKey = `setup-dev-${crypto.randomUUID()}`;
   const nextNo = state.installments_paid + 1;
-  const description = `gaRAN — mise en service (versement ${nextNo}/${state.installments_total}, ${amountFcfa} FCFA)`;
+  const description = full
+    ? `gaRAN — mise en service appareil (solde ${amountFcfa} FCFA)`
+    : `gaRAN — mise en service (versement ${nextNo}/${state.installments_total}, ${amountFcfa} FCFA)`;
 
   const { rows } = await query(
     `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, device_registration_id, amount, months, operator, status)
@@ -168,7 +179,7 @@ export async function initiateDeviceSetup({ consumerId, registrationId }) {
     const link = await createPaymentLink({ amount: amountCentimes, description, idempotencyKey });
     const url = link.url ?? payUrl(link.slug);
     await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [paymentId, link.slug]);
-    return { payment_id: paymentId, status: 'PENDING', amount_fcfa: amountFcfa, installment_no: nextNo, payment_url: url, next_action: { type: 'REDIRECT', url } };
+    return { payment_id: paymentId, status: 'PENDING', amount_fcfa: amountFcfa, full, installment_no: nextNo, payment_url: url, next_action: { type: 'REDIRECT', url } };
   } catch (err) {
     await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
     throw err;
@@ -251,15 +262,26 @@ export async function merchantSetupState(orgId) {
   };
 }
 
-/** Initie un versement de mise en service marchand (2 500 FCFA, ou le reste) par lien ORZAYAH. */
-export async function initiateMerchantSetup({ orgId }) {
+/**
+ * Initie un paiement de mise en service marchand par lien ORZAYAH.
+ * Par défaut on règle le SOLDE COMPLET (la norme) ; `requestedFcfa` permet un
+ * paiement partiel, borné entre un versement (2 500 FCFA) et le reste dû.
+ */
+export async function initiateMerchantSetup({ orgId, requestedFcfa = null }) {
   const state = await merchantSetupState(orgId);
   if (state.complete) throw badRequest('SETUP_DONE', 'La mise en service est déjà entièrement réglée.');
-  const amountFcfa = state.installment_fcfa;
+  const minF = state.installment_fcfa;
+  const maxF = state.remaining_fcfa;
+  let amountFcfa = requestedFcfa == null ? maxF : Math.round(Number(requestedFcfa));
+  if (!Number.isFinite(amountFcfa) || amountFcfa < minF) amountFcfa = minF;
+  if (amountFcfa > maxF) amountFcfa = maxF;
+  const full = amountFcfa >= maxF;
   const amountCentimes = amountFcfa * 100;
   const idempotencyKey = `setup-org-${crypto.randomUUID()}`;
   const nextNo = state.installments_paid + 1;
-  const description = `gaRAN — mise en service marchand (versement ${nextNo}/${state.installments_total}, ${amountFcfa} FCFA)`;
+  const description = full
+    ? `gaRAN — mise en service marchand (solde ${amountFcfa} FCFA)`
+    : `gaRAN — mise en service marchand (versement ${nextNo}/${state.installments_total}, ${amountFcfa} FCFA)`;
 
   const { rows } = await query(
     `INSERT INTO orzayah_payments (idempotency_key, purpose, subject_type, subject_id, amount, months, operator, status)
@@ -271,7 +293,7 @@ export async function initiateMerchantSetup({ orgId }) {
     const link = await createPaymentLink({ amount: amountCentimes, description, idempotencyKey });
     const url = link.url ?? payUrl(link.slug);
     await query(`UPDATE orzayah_payments SET reference = $2, status = 'PENDING' WHERE id = $1`, [paymentId, link.slug]);
-    return { payment_id: paymentId, status: 'PENDING', amount_fcfa: amountFcfa, installment_no: nextNo, payment_url: url, next_action: { type: 'REDIRECT', url } };
+    return { payment_id: paymentId, status: 'PENDING', amount_fcfa: amountFcfa, full, installment_no: nextNo, payment_url: url, next_action: { type: 'REDIRECT', url } };
   } catch (err) {
     await query(`UPDATE orzayah_payments SET status = 'FAILED', failure_reason = $2 WHERE id = $1`, [paymentId, err.message?.slice(0, 500) ?? 'erreur']).catch(() => {});
     throw err;

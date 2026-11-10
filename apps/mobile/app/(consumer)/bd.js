@@ -79,6 +79,9 @@ export default function BdSpace() {
   const code = data.promo_code;
   const inviteLink = `https://apps.garan.solutions/?code=${code}`;
   const inviteMsg = `Protège ton téléphone contre le vol avec gaRAN. Clique ici pour créer ton compte (ton code promo ${code} est déjà prérempli) : ${inviteLink}`;
+  // Étape 1 : présenter le projet avant d'envoyer le code promo.
+  const whyLink = 'https://apps.garan.solutions/why';
+  const whyMsg = `Découvre gaRAN : le registre qui protège ton téléphone contre le vol et prouve que tu en es le propriétaire. Comprendre en 1 minute : ${whyLink}`;
 
   return (
     <>
@@ -97,9 +100,19 @@ export default function BdSpace() {
           </Text>
         </Card>
 
-        {/* Partage du code promo */}
+        {/* Étape 1 : présenter gaRAN au prospect */}
         <Card style={{ gap: 10, marginBottom: 12 }}>
-          <Muted>Partager mon code promo</Muted>
+          <Muted>Étape 1 — Faire connaître gaRAN</Muted>
+          <Text style={{ color: colors.ink2, fontSize: 12.5 }}>
+            Avant d’envoyer votre code promo, présentez le projet : partagez la page de présentation pour convaincre votre client ou prospect.
+          </Text>
+          <Button title="Partager la présentation (WhatsApp)" onPress={() => openUrl('https://wa.me/?text=' + encodeURIComponent(whyMsg))} />
+          <Button title="Partager la présentation (SMS)" variant="secondary" onPress={() => openUrl('sms:?body=' + encodeURIComponent(whyMsg))} />
+        </Card>
+
+        {/* Étape 2 : partage du code promo */}
+        <Card style={{ gap: 10, marginBottom: 12 }}>
+          <Muted>Étape 2 — Partager mon code promo</Muted>
           <View style={{ alignItems: 'center' }}>
             <Text style={{ fontSize: 28, fontWeight: '900', letterSpacing: 4, color: colors.green }}>{code}</Text>
           </View>

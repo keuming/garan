@@ -628,10 +628,10 @@ consumerRouter.get(
 consumerRouter.post(
   '/devices/:reg/setup/orzayah',
   requireConsumer,
-  validate({ params: z.object({ reg: zUuid }) }),
+  validate({ params: z.object({ reg: zUuid }), body: z.object({ amount_fcfa: z.coerce.number().int().positive().max(1000).optional() }) }),
   async (req, res) => {
-    const r = await initiateDeviceSetup({ consumerId: req.auth.sub, registrationId: req.v.params.reg });
-    await audit(req, 'consumer.setup_initiated', { entity: 'orzayah_payment', entityId: r.payment_id, meta: { registration_id: req.v.params.reg, installment_no: r.installment_no } });
+    const r = await initiateDeviceSetup({ consumerId: req.auth.sub, registrationId: req.v.params.reg, requestedFcfa: req.v.body.amount_fcfa ?? null });
+    await audit(req, 'consumer.setup_initiated', { entity: 'orzayah_payment', entityId: r.payment_id, meta: { registration_id: req.v.params.reg, amount_fcfa: r.amount_fcfa, full: r.full } });
     res.status(201).json(r);
   }
 );
