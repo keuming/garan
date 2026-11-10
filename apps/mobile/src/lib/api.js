@@ -74,15 +74,30 @@ export function refreshSession() {
   return refreshing;
 }
 
+// Délai au-delà duquel une requête restée sans réponse est abandonnée : sans cela,
+// sur un réseau mobile instable, fetch peut ne jamais se résoudre et l'écran « charge »
+// indéfiniment (ex. l'écran Vérifier un IMEI).
+const REQUEST_TIMEOUT_MS = 20000;
+
 async function request(path, { method = 'GET', body, form, auth = true, retry = true } = {}) {
   const headers = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (auth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, { method, headers, body: form ?? (body === undefined ? undefined : JSON.stringify(body)) });
-  } catch {
-    throw new ApiError(0, 'NETWORK', 'Pas de connexion internet. Vérifiez votre réseau et réessayez.');
+    res = await fetch(`${BASE}${path}`, { method, headers, signal: controller.signal, body: form ?? (body === undefined ? undefined : JSON.stringify(body)) });
+  } catch (e) {
+    throw new ApiError(
+      0,
+      'NETWORK',
+      e?.name === 'AbortError'
+        ? 'Le serveur met trop de temps à répondre. Vérifiez votre connexion et réessayez.'
+        : 'Pas de connexion internet. Vérifiez votre réseau et réessayez.'
+    );
+  } finally {
+    clearTimeout(timer);
   }
   if (res.status === 401 && auth && retry && (await tokens.getRefresh())) {
     await refreshSession();
